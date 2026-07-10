@@ -15,6 +15,13 @@ copiar a la Historia Clínica.
 5. Al tocar "Guardar en HC" se envía a `/api/save`, que por ahora es un **stub** (solo loguea y
    confirma) — se reemplaza en el siguiente paso por la integración real con el sistema médico.
 
+## Herramienta 2: resumen de historia clínica completa
+
+En `/resumen-hc` se puede pegar el volcado crudo de toda la historia clínica de un paciente
+(tal como lo exporta el sistema) y generar una línea de tiempo clínica condensada con `gpt-4o`:
+resumen breve del caso, línea de tiempo cronológica agrupando eventos similares (por ejemplo,
+series de inyecciones intravítreas), y estado/tratamiento actual. Endpoint: `/api/resumen-hc`.
+
 ## Configuración
 
 Variable de entorno requerida:

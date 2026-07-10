@@ -134,6 +134,15 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-10">
       <header>
+        <nav className="mb-3 flex gap-4 text-sm">
+          <span className="font-medium text-slate-800">Dictado de nota</span>
+          <a
+            href="/resumen-hc"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Resumen de HC completa
+          </a>
+        </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Nota clínica por voz</h1>
         <p className="mt-1 text-sm text-slate-500">
           MVP · Oftalmología — grabá un dictado breve al finalizar la consulta y se convierte en un
