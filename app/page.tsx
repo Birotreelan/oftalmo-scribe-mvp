@@ -142,6 +142,12 @@ export default function Home() {
           >
             Resumen de HC completa
           </a>
+          <a
+            href="/tendencia-hc"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Tendencia y alertas
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Nota clínica por voz</h1>
         <p className="mt-1 text-sm text-slate-500">

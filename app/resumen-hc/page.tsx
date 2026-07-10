@@ -43,13 +43,21 @@ export default function ResumenHC() {
             Dictado de nota
           </a>
           <span className="font-medium text-slate-800">Resumen de HC completa</span>
+          <a
+            href="/tendencia-hc"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Tendencia y alertas
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">
           Resumen de historia clínica completa
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Pegá el historial completo del paciente tal como lo exporta el sistema (todas las
-          consultas, cirugías, controles) y generá una línea de tiempo clínica condensada.
+          Pegá el historial completo del paciente tal como lo exporta el sistema — ficha del
+          paciente y antecedentes personales/familiares (si los tenés) más todas las consultas,
+          cirugías y controles — y generá un resumen con alertas de seguridad y una línea de
+          tiempo clínica condensada.
         </p>
       </header>
 
