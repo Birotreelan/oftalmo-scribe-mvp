@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { generarResumenConsulta } from "@/lib/hc-analysis";
+import { generarResumenConsulta, GLOSARIO_PROMPT_TRANSCRIPCION } from "@/lib/hc-analysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -78,6 +78,7 @@ export async function POST(req: NextRequest) {
     formData.append("model", "gpt-4o-transcribe-diarize");
     formData.append("response_format", "diarized_json");
     formData.append("chunking_strategy", "auto");
+    formData.append("prompt", GLOSARIO_PROMPT_TRANSCRIPCION);
 
     const transcriptionRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",

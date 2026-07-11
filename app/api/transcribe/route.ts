@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI, { toFile } from "openai";
+import { CORRECCION_TERMINOLOGIA_INSTRUCCIONES, GLOSARIO_PROMPT_TRANSCRIPCION } from "@/lib/hc-analysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -18,14 +19,15 @@ pegar en la Historia Clínica del paciente. Reglas estrictas:
    mencionado, simplemente no lo incluyas.
 2. Corregí muletillas, repeticiones y errores propios del dictado, pero conservá el contenido
    clínico exacto tal como fue relatado.
-3. Organizá el texto en secciones solo si hay contenido para esas secciones, usando encabezados
+3. ${CORRECCION_TERMINOLOGIA_INSTRUCCIONES}
+4. Organizá el texto en secciones solo si hay contenido para esas secciones, usando encabezados
    simples como "Motivo de consulta", "Antecedentes", "Examen oftalmológico", "Agudeza visual",
    "Presión intraocular", "Biomicroscopía", "Fondo de ojo", "Diagnóstico", "Plan / Indicaciones".
    No fuerces una sección si no hay nada que poner ahí.
-4. Mantené la terminología y abreviaturas oftalmológicas que use el médico (AV, PIO, OD, OI, AO,
+5. Mantené la terminología y abreviaturas oftalmológicas que use el médico (AV, PIO, OD, OI, AO,
    SLE, FO, etc.) tal como las dictó.
-5. Escribí en un estilo de historia clínica profesional, en español.
-6. Devolvé únicamente el texto de la nota, sin comentarios adicionales, sin markdown y sin
+6. Escribí en un estilo de historia clínica profesional, en español.
+7. Devolvé únicamente el texto de la nota, sin comentarios adicionales, sin markdown y sin
    explicaciones sobre lo que hiciste.`;
 
 export async function POST(req: NextRequest) {
@@ -53,6 +55,7 @@ export async function POST(req: NextRequest) {
       file,
       model: "gpt-4o-transcribe",
       language: "es",
+      prompt: GLOSARIO_PROMPT_TRANSCRIPCION,
     });
 
     const transcript = transcription.text?.trim() ?? "";

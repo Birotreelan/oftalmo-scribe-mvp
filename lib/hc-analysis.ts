@@ -1,6 +1,163 @@
 import OpenAI from "openai";
 
 // ---------------------------------------------------------------------------
+// Glosario oftalmológico compartido: se usa (a) como "prompt" de sesgo en las
+// llamadas de transcripción, para ayudar al reconocimiento de voz a acertar
+// términos poco frecuentes, y (b) como referencia de corrección contextual en
+// los prompts de armado de nota (dictado y consulta completa), para poder
+// corregir errores de reconocimiento del tipo "Artan" → "losartán" sin
+// inventar información que el médico no dijo.
+//
+// Fuentes usadas para verificar/ampliar los principios activos y la
+// clasificación (no es una lista inventada de memoria):
+// - Formulario Terapéutico Provincial de Santa Fe, Edición 2022 (documento
+//   oficial público, clasificación ATC), sección "S — Órganos sensoriales /
+//   S01 Oftalmológicos": https://www.santafe.gov.ar (antiinfecciosos,
+//   antiinflamatorios, antiglaucoma y mióticos, midriáticos y ciclopléjicos).
+// - Clasificación ATC (WHO/OMS) subgrupos S01FA (anticolinérgicos: atropina,
+//   ciclopentolato, tropicamida, homatropina) y S01FB (simpaticomiméticos:
+//   fenilefrina), estándar internacional para la parte de S01F no cubierta
+//   por el extracto anterior.
+// - PAMI/INSSJP, cobertura de medicamentos antiangiogénicos en oftalmología
+//   (bevacizumab, ranibizumab, aflibercept, brolucizumab) como referencia de
+//   uso real en Argentina para esta categoría de alto costo.
+// - AAO "Dictionary of Eye Terminology" y EyeWiki (American Academy of
+//   Ophthalmology / eyewiki.org) para patologías, procedimientos, anatomía y
+//   abreviaturas estandarizadas.
+// - Alfabeta (alfabeta.net, vademécum comercial argentino usado en la
+//   clínica): nombres de marca realmente comercializados en Argentina para
+//   cada principio activo/combinación, consultados producto por producto
+//   (no es una lista generada de memoria). Esta capa importa porque en la
+//   práctica lo que más se confunde en un dictado es el nombre de fantasía,
+//   no el principio activo (ej. "Ganfort" mal transcripto, no "bimatoprost").
+//   Es una primera pasada con los principios activos más frecuentes en
+//   oftalmología; si en el uso real aparecen marcas de otros principios
+//   activos que fallan en la transcripción, se agregan bajo el mismo
+//   criterio (consultadas en Alfabeta, no inventadas).
+// ---------------------------------------------------------------------------
+
+export const GLOSARIO_OFTALMOLOGICO = `
+Medicamentos y principios activos — antiinfecciosos oftálmicos: natamicina, gentamicina,
+tobramicina, eritromicina, aciclovir, ofloxacina, ciprofloxacina, moxifloxacina, plata vitelinato.
+
+Medicamentos y principios activos — antiinflamatorios e inmunomoduladores oftálmicos:
+dexametasona, prednisolona, fluorometolona, diclofenac, diclofenaco, ketorolac, nepafenaco,
+ciclosporina, dexametasona + tobramicina, prednisolona + fenilefrina.
+
+Medicamentos y principios activos — antiglaucomatosos y mióticos: timolol, brimonidina,
+pilocarpina, acetazolamida, dorzolamida, brinzolamida, latanoprost, travoprost, bimatoprost.
+
+Medicamentos y principios activos — midriáticos y ciclopléjicos: atropina, ciclopentolato,
+tropicamida, fenilefrina, homatropina.
+
+Medicamentos y principios activos — antiangiogénicos intravítreos: bevacizumab, ranibizumab,
+aflibercept, brolucizumab.
+
+Medicamentos y principios activos — lubricantes y otros: carbomer, trehalosa.
+
+Medicamentos sistémicos frecuentes en antecedentes del paciente (no oftálmicos, pero habituales
+en la anamnesis y fácilmente confundidos con términos oculares): losartán, amlodipina, enalapril,
+metformina.
+
+Nombres comerciales habituales en Argentina (fuente: Alfabeta), por principio activo — usar para
+reconocer/corregir el nombre de fantasía que dice el médico, no solo el principio activo:
+- timolol: Timolol Denver Farma, Poentimol.
+- latanoprost: Xalatan, Louten, Gaap Ofteno, Gaap Ofteno PF.
+- latanoprost+timolol: Louten T.
+- brimonidina: Alphagan, Alphagan P, Brimopress, Brimopress LC, Syrast, Syrast LC.
+- brimonidina+timolol: Brimopress T, Brimopress T LC, Brit, Combigan, Timobrim.
+- dorzolamida: Dorlamida.
+- dorzolamida+timolol: Aliviapres, Bideon Press, Dorlamida T, Dorzoflax, Dorzolamida T Dorf,
+  Elíptic, Elíptic Ofteno PF, Glaucotensil TD, Glaucotensil TD LC, Press Out T, Timed D,
+  Zopirol DM.
+- dorzolamida+timolol+brimonidina (triple): sin marca única verificada todavía.
+- brinzolamida: Azopt, Brinzoten.
+- brinzolamida+timolol: Azarga.
+- bimatoprost+timolol: Ganfort, Ganfort UD.
+- acetazolamida: Aceta, Diabo.
+- atropina (sulfato): Alcon Atropina 1%, Atropina (Duncan), Klonatropina, Sulfato de Atropina Biol.
+- ciclopentolato: Ciclopentolato Poen.
+- fenilefrina+tropicamida (midriático combinado): Tropioftal F, Fotorretin.
+- dexametasona oftálmica: Decadron, Nexadron Oftal, Labsavent Oftal; Ozurdex (implante
+  intravítreo de liberación prolongada).
+- prednisolona oftálmica: Prednefrin Forte.
+- ciprofloxacina+dexametasona: Ciprocler Colirio, Ciprolabsa D Oftal, Cirflox Oftal, Decadron
+  con Ciprofloxacina, Quidex, Sophixin DX, Tacines.
+- gatifloxacina+prednisolona: Zypred.
+- ciprofloxacina oftálmica sola: Ciprolabsa Oftal, Ciloxadex (esta última en combinación, ver
+  antiinflamatorios).
+- diclofenac sódico+tobramicina: Tobratlas.
+- ciclosporina oftálmica: Restasis, Closporil, Cipos.
+- ketorolac: Ketolac.
+- bevacizumab (uso off-label intravítreo en Argentina): Avastin.
+- aflibercept: Eylia/Eylea (verificar ortografía exacta contra el envase; el nombre
+  internacional habitual es "Eylea").
+Principios activos de esta lista sin marca todavía verificada en Alfabeta (natamicina,
+gentamicina, eritromicina, aciclovir, ofloxacina, plata vitelinato, tobramicina sola,
+moxifloxacina, nepafenaco, travoprost solo, bimatoprost solo, pilocarpina, ranibizumab): si
+aparecen en una consulta real con un nombre de marca que la transcripción no reconoce bien,
+avisar para sumarlos de la misma manera (consultados en Alfabeta, no adivinados).
+
+Patologías y diagnósticos: pterigion, queratocono, blefaritis, conjuntivitis, uveítis, catarata
+nuclear, catarata cortical, catarata subcapsular posterior, glaucoma primario de ángulo abierto,
+glaucoma de ángulo cerrado, degeneración macular relacionada con la edad, retinopatía diabética,
+desprendimiento de retina, edema macular, membrana epirretiniana, ojo seco, queratitis,
+escleritis, epiescleritis, ambliopía, estrabismo, ptosis palpebral, orzuelo, chalazión.
+
+Procedimientos y estudios complementarios: biometría óptica, recuento endotelial, paquimetría,
+topografía corneal, tomografía de coherencia óptica (OCT), retinografía, campimetría,
+gonioscopía, ecografía ocular, microscopía especular, angiografía con fluoresceína,
+autorrefractometría, tonometría de aplanación, tonometría de no contacto.
+
+Anatomía ocular: córnea, cristalino, retina, mácula, papila, nervio óptico, cámara anterior,
+cámara posterior, humor vítreo, conjuntiva, esclera, iris, cuerpo ciliar, limbo esclerocorneal,
+ángulo iridocorneal, fóvea, epitelio corneal, endotelio corneal.
+
+Cirugías y técnicas quirúrgicas: facoemulsificación (FACO+IOL), vitrectomía (23G, 25G, 27G),
+trabeculectomía, iridotomía láser YAG, capsulotomía YAG, fotocoagulación láser,
+panfotocoagulación, crosslinking corneal, queratoplastia penetrante, DSAEK, DMEK, inyección
+intravítrea antiangiogénica (antiVEGF), inyección de triamcinolona.
+
+Lentes intraoculares: LIO monofocal, LIO multifocal, LIO trifocal, LIO tórica, LIO de cámara
+posterior, LIO de cámara anterior.
+
+Abreviaturas médicas habituales: OD, OI, AO, AV, PIO, SLE, OCT, FO, AV SC, AV CC, BMC, IOL, LIO,
+CVC.
+`.trim();
+
+// Versión condensada para usar como "prompt" de sesgo en las llamadas de
+// transcripción de audio (listas más cortas funcionan mejor ahí que el
+// glosario completo).
+export const GLOSARIO_PROMPT_TRANSCRIPCION =
+  "Vocabulario esperado en una consulta de oftalmología: losartán, amlodipina, enalapril, " +
+  "metformina, timolol, latanoprost, brimonidina, dorzolamida, brinzolamida, bevacizumab, " +
+  "ranibizumab, aflibercept, nombres comerciales Alfabeta: Xalatan, Louten, Ganfort, Combigan, " +
+  "Alphagan, Azopt, Azarga, Timolol Denver Farma, Dorzolamida T Dorf, Glaucotensil, Restasis, " +
+  "Ozurdex, Avastin, Prednefrin Forte, Tropioftal, pterigion, queratocono, blefaritis, uveítis, catarata nuclear, " +
+  "glaucoma de ángulo abierto, degeneración macular, retinopatía diabética, desprendimiento de " +
+  "retina, edema macular, membrana epirretiniana, biometría óptica, paquimetría, topografía " +
+  "corneal, tomografía de coherencia óptica, gonioscopía, córnea, cristalino, mácula, papila, " +
+  "cámara anterior, humor vítreo, facoemulsificación, vitrectomía, trabeculectomía, LIO " +
+  "monofocal, LIO multifocal, LIO tórica, agudeza visual, presión intraocular, biomicroscopía, " +
+  "fondo de ojo, OD, OI, AO, PIO.";
+
+export const CORRECCION_TERMINOLOGIA_INSTRUCCIONES = `
+Corrección de terminología médica: el reconocimiento de voz suele confundir nombres de
+medicamentos, patologías, procedimientos y anatomía con palabras fonéticamente parecidas (por
+ejemplo "Artan" en vez de "losartán", o "Pet Guillón" en vez de "pterigion"). Usá el glosario de
+referencia de abajo junto con el contexto clínico de la frase para corregir esos errores cuando
+tengas alta confianza de que el término correcto es uno del glosario (u otro término médico
+estándar equivalente). No hagas corrección puramente fonética sin mirar el contexto: por ejemplo,
+"tomografía" a secas en un contexto oftalmológico probablemente sea "tomografía de coherencia
+óptica (OCT)", y "presión dieciséis" en el examen ocular probablemente sea "PIO: 16". Esta
+corrección es solo para arreglar errores de reconocimiento de palabras que sí fueron dichas: NO
+es una excusa para agregar datos clínicos que no estén en la transcripción.
+
+Glosario de referencia:
+${GLOSARIO_OFTALMOLOGICO}
+`.trim();
+
+// ---------------------------------------------------------------------------
 // Herramienta: resumen de consulta completa (médico + paciente, diarizada)
 // ---------------------------------------------------------------------------
 
@@ -39,8 +196,7 @@ paciente)
 Reglas estrictas:
 1. No inventes ni asumas ningún dato que no esté explícito en la transcripción.
 2. No traduzcas jerga médica a términos técnicos que el médico no usó, ni inventes valores.
-3. Si la transcripción tiene errores evidentes de reconocimiento de voz, no los corrijas
-   adivinando: dejá el texto tal como se entiende razonablemente.
+3. ${CORRECCION_TERMINOLOGIA_INSTRUCCIONES}
 4. Escribí en español, en un estilo de historia clínica profesional.
 5. Devolvé únicamente la nota con la estructura pedida, sin comentarios adicionales, sin markdown
    y sin explicar tu razonamiento sobre quién es quién.`;

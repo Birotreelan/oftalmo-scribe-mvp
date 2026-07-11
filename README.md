@@ -15,6 +15,39 @@ copiar a la Historia Clínica.
 5. Al tocar "Guardar en HC" se envía a `/api/save`, que por ahora es un **stub** (solo loguea y
    confirma) — se reemplaza en el siguiente paso por la integración real con el sistema médico.
 
+## Corrección de terminología médica (glosario oftalmológico)
+
+En "Dictado de nota" y "Consulta completa" (los dos flujos que transcriben audio en vivo) se
+usa un glosario oftalmológico compartido (`lib/hc-analysis.ts` → `GLOSARIO_OFTALMOLOGICO`) de dos
+maneras:
+
+1. Como parámetro `prompt` en la llamada de transcripción (`GLOSARIO_PROMPT_TRANSCRIPCION`,
+   versión condensada), para sesgar al modelo de voz hacia vocabulario oftalmológico esperado
+   (medicamentos, patologías, procedimientos, anatomía) antes de que intente reconocer el audio.
+2. Como referencia de corrección contextual en el prompt que arma la nota final
+   (`CORRECCION_TERMINOLOGIA_INSTRUCCIONES`), para que GPT-4o corrija errores de reconocimiento
+   evidentes (ej. "Artan" → "losartán", "Pet Guillón" → "pterigion") usando el contexto clínico
+   completo, no solo similitud fonética — sin que esto se convierta en una excusa para inventar
+   datos que no se dijeron.
+
+No se aplicó a "Resumen de HC completa" ni "Tendencia y alertas" porque esas herramientas
+procesan texto ya escrito (exportado del sistema), no transcripción de audio en vivo.
+
+**Fuentes del glosario:** los principios activos están verificados contra el Formulario
+Terapéutico Provincial de Santa Fe (Edición 2022, clasificación ATC oficial, sección S01
+Oftalmológicos), la clasificación ATC/OMS para los subgrupos no cubiertos en ese extracto, y la
+cobertura de antiangiogénicos de PAMI/INSSJP para esa categoría. La terminología (patologías,
+procedimientos, anatomía, abreviaturas) está cruzada con el "Dictionary of Eye Terminology" de la
+American Academy of Ophthalmology y EyeWiki (eyewiki.org). Además, se agregó una capa de nombres
+comerciales (marcas) realmente vendidos en Argentina, consultados uno por uno en **Alfabeta**
+(alfabeta.net, el vademécum que usa la clínica) — esto importa porque en la práctica lo que más
+falla en la transcripción suele ser el nombre de fantasía de la gota, no el principio activo (ej.
+"Ganfort", "Xalatan", "Combigan"). El detalle de cada fuente está citado como comentario en
+`lib/hc-analysis.ts`, junto al glosario. La cobertura de marcas es una primera pasada sobre los
+principios activos más frecuentes (antiglaucomatosos, antiinflamatorios/antibióticos oftálmicos,
+midriáticos, antiangiogénicos); si en el uso real aparece una marca de otro principio activo que
+la transcripción no reconoce, se agrega de la misma manera (consultada en Alfabeta, no adivinada).
+
 ## Medidor de nivel de micrófono + prueba de micrófono
 
 Tanto "Dictado de nota" como "Consulta completa" muestran, mientras se está grabando, un medidor
