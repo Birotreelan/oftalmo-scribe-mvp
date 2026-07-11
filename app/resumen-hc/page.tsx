@@ -61,6 +61,12 @@ export default function ResumenHC() {
           >
             Prueba de micrófono
           </a>
+          <a
+            href="/escaneo-dni"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Escaneo de DNI
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">
           Resumen de historia clínica completa

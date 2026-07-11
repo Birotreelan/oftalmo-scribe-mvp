@@ -113,6 +113,12 @@ export default function PruebaMicrofono() {
             Consulta completa
           </a>
           <span className="font-medium text-slate-800">Prueba de micrófono</span>
+          <a
+            href="/escaneo-dni"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Escaneo de DNI
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Prueba de micrófono</h1>
         <p className="mt-1 text-sm text-slate-500">

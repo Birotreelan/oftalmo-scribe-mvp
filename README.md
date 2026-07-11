@@ -134,6 +134,45 @@ proyecto. Como con cualquier variable nueva, hace falta un redeploy para que la 
 grabe una muestra de voz corta una vez, y pasarla como `known_speaker_references` a la API para
 que etiquete sus segmentos directamente.
 
+## Herramienta 5: escaneo de DNI argentino para admisión (MVP)
+
+En `/escaneo-dni` se sube una foto del frente del DNI (obligatoria) y opcionalmente del dorso, y
+se extraen datos estructurados para precargar el formulario de admisión del paciente: apellido,
+nombre, DNI, sexo, fecha de nacimiento, nacionalidad, CUIL, ejemplar, número de trámite, fecha de
+emisión y domicilio (estos dos últimos, y el CUIL completo, normalmente solo están en el dorso).
+
+**Cómo funciona esta primera etapa:** la imagen (o las dos) se manda directo a `gpt-4o` con
+`response_format: json_schema` (`lib/dni-extraction.ts` → `DNI_RESPONSE_SCHEMA`), en modo
+`strict`, para que la respuesta venga siempre con la misma forma. El modelo tiene instrucciones
+explícitas de no "adivinar" dígitos que no lea con claridad — si un campo es dudoso, lo deja en
+`null` y lo agrega a `camposDudosos` (la UI resalta esos campos en amarillo con un ⚠ para que se
+revisen a mano antes de guardar) — y de autoevaluar su propia confianza (alta/media/baja) según la
+nitidez de la imagen.
+
+**Por qué es una primera etapa y no la versión final:** el DNI argentino (formato tarjeta) trae en
+el frente un código de barras PDF417 con los datos principales codificados como texto plano
+(número de trámite, apellidos, nombres, sexo, DNI, ejemplar, fecha de nacimiento, fecha de
+emisión, e inicio/fin del CUIL, separados por `@`), y en el dorso una zona de lectura mecánica
+(MRZ) tipo pasaporte. Ambos son fuentes determinísticas — se decodifican con una librería, no se
+"leen" con un modelo de lenguaje — y son mucho más confiables que la visión por IA para los campos
+numéricos críticos (DNI, CUIL), donde un error de un dígito es grave para la admisión de un
+paciente real. La decisión (tomada junto con el usuario) fue arrancar con la versión simple de
+visión para validar rápido el flujo completo (UI, JSON, futura integración con el alta de
+paciente), y en una segunda etapa sumar la decodificación de PDF417/MRZ como fuente primaria,
+dejando la visión como respaldo para cuando el código no sea legible y para los datos que el
+código no trae.
+
+**Aplica también a otros documentos:** el mismo patrón (imagen → LLM con JSON schema específico
+del tipo de documento) sirve para otros documentos de la admisión (carnet de obra social/prepaga,
+pasaporte), pero cada tipo necesita su propio schema y, si tiene, su propio código/zona
+legible por máquina — no conviene un único prompt genérico "extraé todo de esta imagen" para
+todos los tipos de documento, da resultados menos confiables.
+
+**Privacidad:** DNI, CUIL y foto son datos personales sensibles (Ley 25.326) — este prototipo
+todavía no persiste las imágenes ni los datos extraídos en ningún lado; el siguiente paso es
+conectar el resultado al alta de paciente real del sistema médico (no guardarlo en este widget) y
+sumar el consentimiento explícito en el flujo de admisión.
+
 ## Integración con el sistema médico: /api/panel-preconsulta
 
 Endpoint pensado para ser llamado **servidor-a-servidor desde el backend del sistema médico**,
@@ -219,3 +258,10 @@ Requiere HTTPS o `localhost` para que el navegador habilite el acceso al micróf
   de pacientes, no uno a la vez, para armar una lista diaria de a quién llamar.
 - Empaquetar la UI del panel como widget embebible (iframe o web component) que lea el resultado
   ya calculado, para insertar en el sistema host.
+- Sumar a `/escaneo-dni` la decodificación del código PDF417 del frente y la MRZ del dorso
+  (librería de barcode, ej. zxing-js, corriendo en el navegador) como fuente primaria para DNI y
+  CUIL, dejando la visión por IA como respaldo. Ver la sección "Herramienta 5" para el detalle.
+- Conectar `/escaneo-dni` al alta de paciente real (hoy solo muestra el formulario editable, no
+  persiste nada), y sumar el consentimiento explícito del paciente para el escaneo del documento.
+- Generalizar el escaneo de documentos a otros tipos (pasaporte, carnet de obra social/prepaga),
+  cada uno con su propio JSON schema de extracción.
