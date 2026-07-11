@@ -80,7 +80,13 @@ export default function ConsultaCompleta() {
     recorder.onstop = async () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       setMicStream(null);
-      const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
+      // Normalizamos el tipo a "audio/webm" a secas: el MIME real del
+      // MediaRecorder suele venir como "audio/webm;codecs=opus", que no
+      // matchea de forma exacta contra allowedContentTypes en el token de
+      // Vercel Blob y hace que la subida se rechace (el navegador lo
+      // muestra como error de CORS porque la respuesta de error no trae
+      // esos headers, pero el problema real es el tipo de contenido).
+      const blob = new Blob(chunksRef.current, { type: "audio/webm" });
 
       try {
         const uploaded = await upload(`consulta-${Date.now()}.webm`, blob, {
