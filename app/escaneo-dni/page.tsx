@@ -94,25 +94,39 @@ export default function EscaneoDni() {
   const [errorMsg, setErrorMsg] = useState("");
 
   // Captura por cámara + auto-detección del código de barras del frente.
-  const [barcodeSupported, setBarcodeSupported] = useState(false);
+  // Usamos el ponyfill "barcode-detector" (ZXing compilado a WebAssembly) en
+  // vez del BarcodeDetector nativo del navegador: el nativo solo funciona en
+  // Chrome/Edge sobre macOS y Android (en Windows no existe una API de
+  // detección de códigos a nivel de sistema operativo, así que Chrome en
+  // Windows no lo soporta en absoluto), mientras que este ponyfill funciona
+  // igual en cualquier navegador/sistema operativo porque no depende del SO.
   const [cameraTarget, setCameraTarget] = useState<CaptureTarget | null>(null);
   const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
   const [barcodeDetectedFront, setBarcodeDetectedFront] = useState(false);
+  const [lectorListo, setLectorListo] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const barcodeDetectorRef = useRef<any>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
       try {
-        const formats: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
-        if (!cancelled) setBarcodeSupported(formats.includes("pdf417"));
-      } catch {
-        if (!cancelled) setBarcodeSupported(false);
+        const { BarcodeDetector } = await import("barcode-detector/pure");
+        if (cancelled) return;
+        const detector = new BarcodeDetector({ formats: ["pdf417"] });
+        detector.addEventListener("load", () => {
+          if (!cancelled) setLectorListo(true);
+        });
+        detector.addEventListener("error", (e: any) => {
+          console.error("No se pudo cargar el lector de código de barras:", e.detail);
+        });
+        barcodeDetectorRef.current = detector;
+      } catch (err) {
+        console.error("No se pudo inicializar el lector de código de barras:", err);
       }
     })();
     return () => {
@@ -163,11 +177,10 @@ export default function EscaneoDni() {
   };
 
   const startBarcodeLoop = () => {
-    const Detector = (window as any).BarcodeDetector;
-    const detector = new Detector({ formats: ["pdf417"] });
     detectIntervalRef.current = setInterval(async () => {
       const video = videoRef.current;
-      if (!video || video.readyState < 2) return;
+      const detector = barcodeDetectorRef.current;
+      if (!video || !detector || video.readyState < 2) return;
       try {
         const barcodes = await detector.detect(video);
         const pdf417 = barcodes.find((b: any) => b.rawValue);
@@ -178,7 +191,7 @@ export default function EscaneoDni() {
       } catch {
         // Frame ilegible puntual: se ignora y se reintenta en el próximo tick.
       }
-    }, 400);
+    }, 350);
   };
 
   const openCamera = async (target: CaptureTarget) => {
@@ -195,7 +208,7 @@ export default function EscaneoDni() {
         await videoRef.current.play();
       }
       setScanStatus("scanning");
-      if (target === "front" && barcodeSupported) {
+      if (target === "front") {
         startBarcodeLoop();
       }
     } catch (err) {
@@ -318,10 +331,12 @@ export default function EscaneoDni() {
               <div className="pointer-events-none absolute inset-6 rounded-md border-2 border-dashed border-white/70" />
             </div>
             <p className="text-xs text-slate-500">
-              {target === "front" && barcodeSupported
-                ? scanStatus === "scanning"
-                  ? "Encuadrá el frente del DNI dentro del marco — se captura solo al detectar el código de barras."
-                  : "Iniciando cámara…"
+              {target === "front"
+                ? scanStatus !== "scanning"
+                  ? "Iniciando cámara…"
+                  : !lectorListo
+                  ? "Cargando el lector de código de barras (puede tardar unos segundos la primera vez)… mientras tanto podés capturar manualmente."
+                  : "Encuadrá el frente del DNI dentro del marco — se captura solo al detectar el código de barras."
                 : "Encuadrá el documento dentro del marco y tocá Capturar."}
             </p>
             <div className="flex gap-2">
@@ -414,14 +429,10 @@ export default function EscaneoDni() {
           MVP · Usá la cámara o subí una foto del frente del DNI (y del dorso si querés más datos)
           para precargar los datos de admisión del paciente. Revisá y corregí antes de guardar.
         </p>
-        {!barcodeSupported ? (
-          <p className="mt-1 text-xs text-amber-600">
-            Este navegador no soporta la detección automática del código de barras del DNI — la
-            cámara del frente va a requerir capturar manualmente. Funciona automático en
-            Chrome/Edge en Android y en la mayoría de las notebooks con Chrome/Edge; en Safari
-            (iPhone/iPad) todavía no está disponible.
-          </p>
-        ) : null}
+        <p className="mt-1 text-xs text-slate-400">
+          El lector de código de barras funciona en cualquier navegador — la primera vez que lo
+          uses puede tardar unos segundos en cargar (descarga un módulo pequeño la primera vez).
+        </p>
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">

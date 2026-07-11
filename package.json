@@ -14,7 +14,8 @@
     "react-dom": "^18.3.1",
     "openai": "^6.0.0",
     "recharts": "^2.12.7",
-    "@vercel/blob": "^2.6.1"
+    "@vercel/blob": "^2.6.1",
+    "barcode-detector": "^2.2.5"
   },
   "devDependencies": {
     "typescript": "^5.5.4",

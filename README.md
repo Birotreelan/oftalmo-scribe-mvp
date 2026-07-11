@@ -142,18 +142,28 @@ del paciente: apellido, nombre, DNI, sexo, fecha de nacimiento, nacionalidad, CU
 número de trámite, fecha de emisión y domicilio (estos dos últimos, y el CUIL completo,
 normalmente solo están en el dorso).
 
-**Captura por cámara con auto-detección (sin botón) para el frente:** si el navegador soporta la
-`BarcodeDetector` API nativa con el formato `pdf417` (Chrome/Edge en desktop y Android — no en
-Safari/iOS ni Firefox, donde no hay soporte todavía), al abrir la cámara del frente se corre un
-loop de detección (`lib/dni-barcode.ts`) sobre el video en vivo; en cuanto encuentra un código
-PDF417 legible, captura el frame automáticamente y parsea sus campos (`parseDniPdf417`) sin
-esperar ninguna acción del usuario. Esto no es solo una mejora de UX: los datos que vienen del
-código de barras (apellido, nombre, DNI, sexo, ejemplar, fechas) son una fuente determinística —
-se decodifican, no se "leen" con un modelo — así que tienen prioridad sobre lo que devuelva
-después la extracción por IA (por ejemplo, al agregar la foto del dorso para sumar domicilio y
-CUIL completo). Si el navegador no soporta la detección automática, o el código no llega a leerse,
-la cámara sigue disponible con un botón "Capturar ahora" (captura manual del frame actual), y
-también queda la opción de subir un archivo.
+**Captura por cámara con auto-detección (sin botón) para el frente:** al abrir la cámara del
+frente se corre un loop de detección (`lib/dni-barcode.ts`) sobre el video en vivo; en cuanto
+encuentra un código PDF417 legible, captura el frame automáticamente y parsea sus campos
+(`parseDniPdf417`) sin esperar ninguna acción del usuario. Esto no es solo una mejora de UX: los
+datos que vienen del código de barras (apellido, nombre, DNI, sexo, ejemplar, fechas) son una
+fuente determinística — se decodifican, no se "leen" con un modelo — así que tienen prioridad
+sobre lo que devuelva después la extracción por IA (por ejemplo, al agregar la foto del dorso para
+sumar domicilio y CUIL completo).
+
+**Sobre la librería usada para decodificar el código de barras:** la primera versión usaba el
+`BarcodeDetector` nativo del navegador, pero solo funciona en Chrome/Edge sobre macOS y Android —
+en Windows, Chrome no lo soporta en absoluto (no hay una API de detección de códigos a nivel de
+sistema operativo en Windows, de la que depende la implementación nativa), y Safari/Firefox
+tampoco lo implementan. Como la recepción de una clínica muy probablemente use una PC con Windows,
+se reemplazó por el paquete [`barcode-detector`](https://www.npmjs.com/package/barcode-detector)
+(ZXing compilado a WebAssembly), que expone la misma interfaz pero funciona igual en cualquier
+navegador y sistema operativo porque no depende de una API del SO. La primera vez que se usa en
+cada sesión del navegador puede tardar uno o dos segundos en cargar el módulo (se descarga desde
+un CDN por defecto) — mientras carga, la cámara ya está disponible con el botón "Capturar ahora"
+para no bloquear al usuario. Si el código no llega a leerse (mala luz, código dañado, cámara de
+baja resolución), ese mismo botón sirve como respaldo, y también queda la opción de subir un
+archivo en vez de usar la cámara.
 
 **Cómo funciona esta primera etapa:** la imagen (o las dos) se manda directo a `gpt-4o` con
 `response_format: json_schema` (`lib/dni-extraction.ts` → `DNI_RESPONSE_SCHEMA`), en modo
@@ -272,9 +282,8 @@ Requiere HTTPS o `localhost` para que el navegador habilite el acceso al micróf
   de pacientes, no uno a la vez, para armar una lista diaria de a quién llamar.
 - Empaquetar la UI del panel como widget embebible (iframe o web component) que lea el resultado
   ya calculado, para insertar en el sistema host.
-- Decodificación del PDF417 del frente: **hecho** vía `BarcodeDetector` nativo (Chrome/Edge). Falta
-  un fallback para Safari/iOS y Firefox (que no lo soportan) — la opción más viable es una
-  librería WebAssembly (ej. basada en ZXing) para no depender de la API nativa en esos navegadores.
+- Decodificación del PDF417 del frente: **hecho**, vía el paquete `barcode-detector` (ZXing +
+  WebAssembly), funcional en cualquier navegador/sistema operativo.
 - Sumar el parseo de la MRZ del dorso como fuente adicional determinística (hoy el dorso solo se
   procesa por visión IA).
 - Conectar `/escaneo-dni` al alta de paciente real (hoy solo muestra el formulario editable, no
