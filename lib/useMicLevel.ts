@@ -25,6 +25,16 @@ export function useMicLevel(stream: MediaStream | null): number {
     }
 
     const audioCtx = new AudioContextClass();
+
+    // Los navegadores pueden crear el AudioContext en estado "suspended" por
+    // las políticas de autoplay, sobre todo porque se crea en un efecto (tras
+    // el await de getUserMedia) y no de forma síncrona dentro del click. Sin
+    // este resume() el analyser puede quedar "congelado" y el nivel nunca se
+    // mueve, aunque el resto del código esté bien.
+    audioCtx.resume().catch((err) => {
+      console.error("No se pudo reanudar el AudioContext:", err);
+    });
+
     const source = audioCtx.createMediaStreamSource(stream);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = 512;
