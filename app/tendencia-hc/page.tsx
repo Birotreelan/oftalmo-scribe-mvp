@@ -85,7 +85,7 @@ export default function TendenciaHC() {
   return (
     <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-10">
       <header>
-        <nav className="mb-3 flex gap-4 text-sm">
+        <nav className="mb-3 flex flex-wrap gap-4 text-sm">
           <a href="/" className="text-slate-500 underline underline-offset-2 hover:text-slate-800">
             Dictado de nota
           </a>
@@ -96,6 +96,12 @@ export default function TendenciaHC() {
             Resumen de HC completa
           </a>
           <span className="font-medium text-slate-800">Tendencia y alertas</span>
+          <a
+            href="/consulta-completa"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Consulta completa
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">
           Tendencia de PIO/AV y alerta de seguimiento

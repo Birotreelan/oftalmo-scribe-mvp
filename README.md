@@ -40,18 +40,105 @@ vitrectomía, otro). Con esos datos ya estructurados, el propio código (no el m
 Endpoint: `/api/tendencia-hc`. La lógica de fechas/alertas es determinística en TypeScript, no
 depende del modelo, para que sea confiable y auditable.
 
+## Herramienta 4: grabación de consulta completa (médico + paciente)
+
+En `/consulta-completa` se graba la consulta entera (no solo el dictado del médico). El flujo:
+
+1. El médico tilda el checkbox de consentimiento informado (obligatorio para habilitar el botón
+   de grabar) y graba con el mismo mecanismo de `MediaRecorder` que el dictado corto, pero sin
+   límite práctico de duración.
+2. Al detener, el audio se sube **directo desde el navegador a Vercel Blob** (`@vercel/blob/client`,
+   vía `/api/consulta-upload`), sin pasar por ninguna función serverless — esto es necesario
+   porque las funciones de Vercel tienen un límite fijo de 4.5 MB por request, que una consulta
+   larga supera fácilmente. El audio nunca llega a nuestro backend como archivo grande; solo la
+   URL del blob.
+3. `/api/procesar-consulta` toma esa URL, descarga el audio del lado del servidor y lo manda a
+   `gpt-4o-transcribe-diarize` (modelo de OpenAI con diarización nativa incorporada, mismo costo
+   que el modelo de transcripción normal: no hace falta un proveedor de diarización aparte).
+4. La transcripción diarizada (hablantes separados, todavía sin saber cuál es médico y cuál
+   paciente) se le pasa a `gpt-4o`, que deduce por el contenido de la conversación quién es quién
+   y arma la nota clínica (motivo de consulta, síntomas referidos por el paciente, hallazgos del
+   examen, diagnóstico, plan).
+
+**Nota sobre esta herramienta:** `gpt-4o-transcribe-diarize` es un modelo muy nuevo y la forma
+exacta de su respuesta (`diarized_json`) puede no estar 100% documentada todavía. El parser en
+`app/api/procesar-consulta/route.ts` (`buildDiarizedText`) es defensivo y cae a texto plano si no
+encuentra el campo de segmentos esperado, y loguea el payload crudo de OpenAI en los logs de
+Vercel — conviene revisar ese log la primera vez que se pruebe con audio real para confirmar que
+el parser está leyendo bien los campos, y ajustarlo si hace falta.
+
+**Requiere habilitar Vercel Blob:** en el dashboard del proyecto, pestaña "Storage" → "Create
+Database" → "Blob". Al conectarlo al proyecto, Vercel agrega automáticamente la variable de
+entorno `BLOB_READ_WRITE_TOKEN` — no hay que configurarla a mano.
+
+**Identificación médico/paciente:** por ahora se decide por el contenido de la conversación
+(sin muestra de voz previa). Si la precisión no alcanza, el siguiente paso es que cada médico
+grabe una muestra de voz corta una vez, y pasarla como `known_speaker_references` a la API para
+que etiquete sus segmentos directamente.
+
+## Integración con el sistema médico: /api/panel-preconsulta
+
+Endpoint pensado para ser llamado **servidor-a-servidor desde el backend del sistema médico**,
+no desde el navegador del médico. Corre resumen + tendencia en paralelo sobre el mismo texto de
+HC y devuelve todo junto, para que el panel de preconsulta se muestre instantáneo cuando el
+médico lo abre.
+
+**Auth:** header `x-api-key` con el valor de `WIDGET_API_KEY` (variable de entorno). Si no se
+configura `WIDGET_API_KEY`, el chequeo se salta — solo válido para pruebas, no para producción.
+
+**Request:**
+```
+POST /api/panel-preconsulta
+Content-Type: application/json
+x-api-key: <WIDGET_API_KEY>
+
+{ "patientId": "105233", "hcText": "<volcado completo de la HC>" }
+```
+
+**Response (200):**
+```json
+{
+  "patientId": "105233",
+  "generatedAt": "2026-07-10T18:32:00.000Z",
+  "resumen": "DATOS DEL PACIENTE\n...\nALERTAS DE SEGURIDAD\n...",
+  "pio": [{ "date": "2020-10-14", "od": 16, "oi": 15 }],
+  "av": [{ "date": "2020-10-14", "od_fraction": "20/200", "od_decimal": 0.1, "oi_fraction": "20/60", "oi_decimal": 0.33 }],
+  "treatments": [{ "date": "2020-10-14", "type": "Inyección antiVEGF", "eye": "OD" }],
+  "alerts": [{ "type": "Inyección antiVEGF", "eye": "OD", "lastDate": "...", "daysSinceLast": 62, "typicalIntervalDays": 35, "eventCount": 12, "message": "..." }]
+}
+```
+
+**Patrón recomendado de uso (pre-cálculo, no bajo demanda):**
+
+1. El sistema médico ya sabe armar el texto de la HC completa (es el mismo volcado que hoy se
+   copia a mano) — la única tarea nueva de ese lado es exponerlo como texto y llamar a este
+   endpoint en el momento en que el médico aprieta "llamar paciente" en la cola de espera, no
+   cuando abre el panel. Así el resultado ya está listo (5-15 seg de proceso) para cuando el
+   paciente entra al consultorio.
+2. El sistema médico guarda el JSON de respuesta (por `patientId` o en una tabla propia) durante
+   la duración de esa consulta.
+3. El iframe/widget que el médico abre no vuelve a llamar a la IA: solo pide al propio backend
+   del sistema médico el resultado ya calculado para ese paciente, así se siente instantáneo.
+4. Ese resultado no debería persistir más allá de la consulta — es información sensible generada
+   a partir de la HC completa (ver la sección de privacidad del documento de asesoramiento).
+
+Si el sistema médico es un sistema de terceros cerrado (sin acceso a agregarle este tipo de
+llamada saliente), este patrón no aplica y hay que evaluar alternativas a nivel navegador
+(extensión/bookmarklet que lea la pantalla), que no requieren este endpoint.
+
 ## Configuración
 
-Variable de entorno requerida:
+Variables de entorno:
 
 ```
 OPENAI_API_KEY=sk-...
+WIDGET_API_KEY=
 ```
 
-En Vercel: Project Settings → Environment Variables → agregar `OPENAI_API_KEY` para Production
-(y Preview si se va a probar ahí) y volver a desplegar.
+En Vercel: Project Settings → Environment Variables → agregar ambas para Production (y Preview
+si se va a probar ahí) y volver a desplegar.
 
-En local: copiar `.env.example` a `.env.local` y completar la clave.
+En local: copiar `.env.example` a `.env.local` y completar los valores.
 
 ## Desarrollo local
 
@@ -65,6 +152,12 @@ Requiere HTTPS o `localhost` para que el navegador habilite el acceso al micróf
 ## Próximos pasos (fuera de este MVP)
 
 - Reemplazar `/api/save` por la integración real con la Historia Clínica del sistema médico.
-- Grabación de la consulta completa (médico + paciente) con diarización de hablantes.
-- Salida estructurada (JSON) mapeada a los campos exactos de la HC, no solo texto libre.
-- Empaquetar como widget embebible (iframe o web component) para insertar en el sistema host.
+- Conectar el sistema médico a `/api/panel-preconsulta` en el evento "llamar paciente".
+- Agregar un store de corto plazo (Vercel KV / Upstash Redis) para cachear el resultado del panel
+  durante la consulta en vez de recalcularlo, y para no depender de que el sistema host lo guarde.
+- Sumar identificación de médico/paciente por muestra de voz (`known_speaker_references`) si la
+  deducción por contenido no alcanza en la práctica.
+- `/api/recall-batch`: correr la detección de atraso (`computeOverdueAlerts`) sobre toda la base
+  de pacientes, no uno a la vez, para armar una lista diaria de a quién llamar.
+- Empaquetar la UI del panel como widget embebible (iframe o web component) que lea el resultado
+  ya calculado, para insertar en el sistema host.

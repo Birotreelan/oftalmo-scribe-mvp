@@ -1,23 +1,26 @@
 "use client";
 
+import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type Status =
   | "idle"
   | "recording"
+  | "uploading"
   | "processing"
   | "review"
   | "saving"
   | "saved"
   | "error";
 
-export default function Home() {
+export default function ConsultaCompleta() {
   const [status, setStatus] = useState<Status>("idle");
   const [seconds, setSeconds] = useState(0);
-  const [noteText, setNoteText] = useState("");
-  const [transcript, setTranscript] = useState("");
+  const [summary, setSummary] = useState("");
+  const [diarizedText, setDiarizedText] = useState("");
   const [showTranscript, setShowTranscript] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [consentChecked, setConsentChecked] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -50,7 +53,7 @@ export default function Home() {
       };
 
       mediaRecorderRef.current = recorder;
-      recorder.start();
+      recorder.start(1000); // timeslice: junta datos cada 1s, más seguro para grabaciones largas
       setStatus("recording");
       setSeconds(0);
       timerRef.current = setInterval(() => setSeconds((s) => s + 1), 1000);
@@ -66,25 +69,33 @@ export default function Home() {
     const recorder = mediaRecorderRef.current;
     if (!recorder) return;
 
-    setStatus("processing");
+    setStatus("uploading");
 
     recorder.onstop = async () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
 
       try {
-        const formData = new FormData();
-        formData.append("audio", blob, "dictado.webm");
+        const uploaded = await upload(`consulta-${Date.now()}.webm`, blob, {
+          access: "public",
+          handleUploadUrl: "/api/consulta-upload",
+        });
 
-        const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+        setStatus("processing");
+
+        const res = await fetch("/api/procesar-consulta", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ blobUrl: uploaded.url }),
+        });
         const data = await res.json();
 
         if (!res.ok) {
-          throw new Error(data?.error || "Error al transcribir el audio.");
+          throw new Error(data?.error || "Error al procesar la consulta.");
         }
 
-        setTranscript(data.transcript || "");
-        setNoteText(data.note || "");
+        setDiarizedText(data.diarizedText || "");
+        setSummary(data.summary || "");
         setStatus("review");
       } catch (err: any) {
         console.error(err);
@@ -103,7 +114,7 @@ export default function Home() {
       const res = await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: noteText, transcript }),
+        body: JSON.stringify({ note: summary, transcript: diarizedText }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al guardar la nota.");
@@ -117,10 +128,11 @@ export default function Home() {
   const handleReset = () => {
     setStatus("idle");
     setSeconds(0);
-    setNoteText("");
-    setTranscript("");
+    setSummary("");
+    setDiarizedText("");
     setShowTranscript(false);
     setErrorMsg("");
+    setConsentChecked(false);
   };
 
   const formatTime = (s: number) => {
@@ -135,7 +147,9 @@ export default function Home() {
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-10">
       <header>
         <nav className="mb-3 flex flex-wrap gap-4 text-sm">
-          <span className="font-medium text-slate-800">Dictado de nota</span>
+          <a href="/" className="text-slate-500 underline underline-offset-2 hover:text-slate-800">
+            Dictado de nota
+          </a>
           <a
             href="/resumen-hc"
             className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
@@ -148,31 +162,48 @@ export default function Home() {
           >
             Tendencia y alertas
           </a>
-          <a
-            href="/consulta-completa"
-            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
-          >
-            Consulta completa
-          </a>
+          <span className="font-medium text-slate-800">Consulta completa</span>
         </nav>
-        <h1 className="text-2xl font-semibold text-slate-800">Nota clínica por voz</h1>
+        <h1 className="text-2xl font-semibold text-slate-800">Grabación de consulta completa</h1>
         <p className="mt-1 text-sm text-slate-500">
-          MVP · Oftalmología — grabá un dictado breve al finalizar la consulta y se convierte en un
-          borrador de nota para la Historia Clínica.
+          Graba toda la consulta médico-paciente, la transcribe con separación de hablantes y
+          genera una nota clínica distinguiendo motivo de consulta, hallazgos del examen y plan.
         </p>
       </header>
 
+      {status === "idle" ? (
+        <section className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={consentChecked}
+              onChange={(e) => setConsentChecked(e.target.checked)}
+              className="mt-1"
+            />
+            <span>
+              Confirmo que informé al paciente que la consulta se va a grabar con fines de
+              documentación clínica asistida por IA, y que dio su consentimiento.
+            </span>
+          </label>
+        </section>
+      ) : null}
+
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        {(status === "idle" || status === "error") && !isReviewing ? (
+        {status === "idle" || status === "error" ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
             <button
               onClick={startRecording}
-              className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500 text-white shadow-md transition hover:bg-red-600"
-              aria-label="Grabar"
+              disabled={!consentChecked}
+              className="flex h-20 w-20 items-center justify-center rounded-full bg-red-500 text-white shadow-md transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="Grabar consulta"
             >
               <span className="text-3xl">●</span>
             </button>
-            <p className="text-sm text-slate-500">Tocá para empezar a grabar el dictado</p>
+            <p className="text-sm text-slate-500">
+              {consentChecked
+                ? "Tocá para empezar a grabar la consulta"
+                : "Confirmá el consentimiento para habilitar la grabación"}
+            </p>
             {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
           </div>
         ) : null}
@@ -187,14 +218,24 @@ export default function Home() {
               <span className="text-2xl">■</span>
             </button>
             <p className="font-mono text-lg text-slate-700">{formatTime(seconds)}</p>
-            <p className="text-sm text-slate-500">Grabando… tocá para detener</p>
+            <p className="text-sm text-slate-500">Grabando la consulta… tocá para detener</p>
+          </div>
+        ) : null}
+
+        {status === "uploading" ? (
+          <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
+            <p className="text-sm text-slate-500">Subiendo audio…</p>
           </div>
         ) : null}
 
         {status === "processing" ? (
           <div className="flex flex-col items-center gap-3 py-10 text-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-slate-700" />
-            <p className="text-sm text-slate-500">Transcribiendo y armando la nota…</p>
+            <p className="text-sm text-slate-500">
+              Transcribiendo con separación de hablantes y armando la nota… puede tardar un rato en
+              consultas largas.
+            </p>
           </div>
         ) : null}
 
@@ -202,28 +243,30 @@ export default function Home() {
           <div className="flex flex-col gap-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-slate-700">
-                Nota generada (editable antes de guardar)
+                Nota de la consulta (editable antes de guardar)
               </label>
               <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                rows={14}
+                value={summary}
+                onChange={(e) => setSummary(e.target.value)}
+                rows={16}
                 className="w-full rounded-lg border border-slate-300 p-3 font-mono text-sm leading-relaxed focus:border-slate-500 focus:outline-none"
                 disabled={status === "saving" || status === "saved"}
               />
             </div>
 
-            {transcript ? (
+            {diarizedText ? (
               <div>
                 <button
                   onClick={() => setShowTranscript((v) => !v)}
                   className="text-xs text-slate-500 underline underline-offset-2"
                 >
-                  {showTranscript ? "Ocultar transcripción original" : "Ver transcripción original"}
+                  {showTranscript
+                    ? "Ocultar transcripción diarizada"
+                    : "Ver transcripción diarizada completa"}
                 </button>
                 {showTranscript ? (
                   <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
-                    {transcript}
+                    {diarizedText}
                   </p>
                 ) : null}
               </div>
@@ -235,7 +278,7 @@ export default function Home() {
               {status !== "saved" ? (
                 <button
                   onClick={handleSave}
-                  disabled={status === "saving" || !noteText.trim()}
+                  disabled={status === "saving" || !summary.trim()}
                   className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-900 disabled:opacity-50"
                 >
                   {status === "saving" ? "Guardando…" : "Guardar en HC"}
@@ -249,7 +292,7 @@ export default function Home() {
                 onClick={handleReset}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
               >
-                {status === "saved" ? "Nueva nota" : "Descartar"}
+                {status === "saved" ? "Nueva consulta" : "Descartar"}
               </button>
             </div>
           </div>
@@ -257,9 +300,8 @@ export default function Home() {
       </section>
 
       <p className="text-center text-xs text-slate-400">
-        Prototipo MVP — el guardado actual es simulado (queda registrado en los logs del servidor).
-        La integración con la Historia Clínica real del sistema se define en el siguiente paso del
-        proyecto.
+        Prototipo de prueba — quién es médico/paciente se deduce por contenido, puede fallar en
+        tramos ambiguos. El guardado es simulado. Revisar y corregir antes de usar en producción.
       </p>
     </main>
   );
