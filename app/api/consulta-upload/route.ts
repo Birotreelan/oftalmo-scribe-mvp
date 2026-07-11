@@ -29,7 +29,17 @@ export async function POST(request: Request): Promise<NextResponse> {
 
     return NextResponse.json(jsonResponse);
   } catch (err: unknown) {
+    console.error("[consulta-upload] error al generar el token:", err);
     const message = err instanceof Error ? err.message : "Error al generar el token de subida.";
-    return NextResponse.json({ error: message }, { status: 400 });
+    const hasToken = Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+    return NextResponse.json(
+      {
+        error: message,
+        hint: hasToken
+          ? "BLOB_READ_WRITE_TOKEN está configurada, el error es otro (ver mensaje)."
+          : "No se encontró BLOB_READ_WRITE_TOKEN en el entorno del servidor: revisá que el store de Blob esté conectado a este proyecto y que hayas redesplegado después de conectarlo.",
+      },
+      { status: 400 }
+    );
   }
 }

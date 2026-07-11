@@ -81,8 +81,14 @@ Vercel — conviene revisar ese log la primera vez que se pruebe con audio real 
 el parser está leyendo bien los campos, y ajustarlo si hace falta.
 
 **Requiere habilitar Vercel Blob:** en el dashboard del proyecto, pestaña "Storage" → "Create
-Database" → "Blob". Al conectarlo al proyecto, Vercel agrega automáticamente la variable de
-entorno `BLOB_READ_WRITE_TOKEN` — no hay que configurarla a mano.
+Database" → "Blob", y conectarlo a este proyecto. Al conectarlo, Vercel agrega automáticamente
+`BLOB_STORE_ID` y `BLOB_WEBHOOK_PUBLIC_KEY` (parte del esquema de autenticación OIDC, que es el
+default desde 2026 para otros flujos de Blob). **Importante:** la subida desde el navegador que
+usamos acá (`handleUpload`/`@vercel/blob/client`, necesaria para no pasar por el límite de 4.5 MB
+de las funciones) siempre requiere el token clásico `BLOB_READ_WRITE_TOKEN` — no acepta OIDC. Si
+no se agregó solo al conectar el store, hay que entrar al store en la pestaña Storage, generar un
+"Read-Write Token" ahí, y cargarlo a mano como variable de entorno `BLOB_READ_WRITE_TOKEN` en el
+proyecto. Como con cualquier variable nueva, hace falta un redeploy para que la función la vea.
 
 **Identificación médico/paciente:** por ahora se decide por el contenido de la conversación
 (sin muestra de voz previa). Si la precisión no alcanza, el siguiente paso es que cada médico
