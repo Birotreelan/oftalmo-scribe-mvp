@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { generarResumenConsulta, GLOSARIO_PROMPT_TRANSCRIPCION } from "@/lib/hc-analysis";
+import { generarResumenConsulta } from "@/lib/hc-analysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -73,12 +73,16 @@ export async function POST(req: NextRequest) {
     // "video/webm" (se ve que lo infiere por la extensión .webm, no por el
     // contenido real), pero es audio. Forzamos "audio/webm" acá para que
     // OpenAI lo acepte como archivo de audio.
+    // Nota: gpt-4o-transcribe-diarize no acepta el parámetro "prompt" (a
+    // diferencia de gpt-4o-transcribe, usado en /api/transcribe). La
+    // corrección de terminología para esta herramienta se aplica igual,
+    // pero solo en el paso siguiente (generarResumenConsulta con gpt-4o),
+    // no como sesgo de la transcripción en sí.
     const formData = new FormData();
     formData.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "consulta.webm");
     formData.append("model", "gpt-4o-transcribe-diarize");
     formData.append("response_format", "diarized_json");
     formData.append("chunking_strategy", "auto");
-    formData.append("prompt", GLOSARIO_PROMPT_TRANSCRIPCION);
 
     const transcriptionRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
       method: "POST",

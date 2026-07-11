@@ -33,6 +33,12 @@ maneras:
 No se aplicó a "Resumen de HC completa" ni "Tendencia y alertas" porque esas herramientas
 procesan texto ya escrito (exportado del sistema), no transcripción de audio en vivo.
 
+**Excepción:** `gpt-4o-transcribe-diarize` (usado en "Consulta completa") no acepta el parámetro
+`prompt` de sesgo — solo `gpt-4o-transcribe` (usado en "Dictado de nota") lo admite. Por eso en
+"Consulta completa" la corrección de terminología ocurre únicamente en el paso siguiente (armado
+del resumen con `gpt-4o`, vía `CORRECCION_TERMINOLOGIA_INSTRUCCIONES`), no como sesgo de la
+transcripción en sí.
+
 **Fuentes del glosario:** los principios activos están verificados contra el Formulario
 Terapéutico Provincial de Santa Fe (Edición 2022, clasificación ATC oficial, sección S01
 Oftalmológicos), la clasificación ATC/OMS para los subgrupos no cubiertos en ese extracto, y la
