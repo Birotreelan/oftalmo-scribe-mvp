@@ -69,9 +69,12 @@ export async function POST(req: NextRequest) {
     }
     const audioBuffer = await audioRes.arrayBuffer();
 
-    const contentType = audioRes.headers.get("content-type") || "audio/webm";
+    // Vercel Blob puede haber guardado el archivo con content-type
+    // "video/webm" (se ve que lo infiere por la extensión .webm, no por el
+    // contenido real), pero es audio. Forzamos "audio/webm" acá para que
+    // OpenAI lo acepte como archivo de audio.
     const formData = new FormData();
-    formData.append("file", new Blob([audioBuffer], { type: contentType }), "consulta.webm");
+    formData.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "consulta.webm");
     formData.append("model", "gpt-4o-transcribe-diarize");
     formData.append("response_format", "diarized_json");
     formData.append("chunking_strategy", "auto");

@@ -17,7 +17,17 @@ export async function POST(request: Request): Promise<NextResponse> {
       request,
       onBeforeGenerateToken: async () => {
         return {
-          allowedContentTypes: ["audio/webm", "audio/wav", "audio/mpeg", "audio/mp4"],
+          // "video/webm" está acá porque en la práctica el content-type que
+          // termina viajando para archivos .webm es ese (aparentemente se
+          // infiere por extensión, no por el `type` real del Blob de audio),
+          // confirmado con el error real de Vercel Blob al probarlo.
+          allowedContentTypes: [
+            "audio/webm",
+            "video/webm",
+            "audio/wav",
+            "audio/mpeg",
+            "audio/mp4",
+          ],
           addRandomSuffix: true,
           maximumSizeInBytes: 300 * 1024 * 1024, // 300 MB, margen amplio para consultas largas
         };
