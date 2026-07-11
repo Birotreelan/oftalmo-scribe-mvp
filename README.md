@@ -15,6 +15,19 @@ copiar a la Historia Clínica.
 5. Al tocar "Guardar en HC" se envía a `/api/save`, que por ahora es un **stub** (solo loguea y
    confirma) — se reemplaza en el siguiente paso por la integración real con el sistema médico.
 
+## Medidor de nivel de micrófono + prueba de micrófono
+
+Tanto "Dictado de nota" como "Consulta completa" muestran, mientras se está grabando, un medidor
+animado de barras (`components/MicLevelMeter.tsx`) que refleja en tiempo real el volumen que está
+captando el micrófono, calculado con la Web Audio API (`AnalyserNode` sobre el mismo `MediaStream`
+de la grabación) en el hook `lib/useMicLevel.ts`. Sirve para que quien habla vea de inmediato que
+el micrófono está funcionando, sin esperar a la transcripción.
+
+Además, en `/prueba-microfono` se puede grabar unos segundos de prueba y reproducirlos al toque
+(con el mismo medidor de nivel visible mientras se graba) para confirmar que el audio se escucha
+bien antes de usar las otras herramientas — esta prueba no se transcribe ni se envía a ningún
+lado, se reproduce localmente en el navegador.
+
 ## Herramienta 2: resumen de historia clínica completa
 
 En `/resumen-hc` se puede pegar el volcado crudo de toda la historia clínica de un paciente

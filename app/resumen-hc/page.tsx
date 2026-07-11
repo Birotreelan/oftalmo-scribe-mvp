@@ -55,6 +55,12 @@ export default function ResumenHC() {
           >
             Consulta completa
           </a>
+          <a
+            href="/prueba-microfono"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Prueba de micrófono
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">
           Resumen de historia clínica completa

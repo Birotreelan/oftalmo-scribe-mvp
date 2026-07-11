@@ -2,6 +2,8 @@
 
 import { upload } from "@vercel/blob/client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MicLevelMeter } from "@/components/MicLevelMeter";
+import { useMicLevel } from "@/lib/useMicLevel";
 
 type Status =
   | "idle"
@@ -21,11 +23,14 @@ export default function ConsultaCompleta() {
   const [showTranscript, setShowTranscript] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [consentChecked, setConsentChecked] = useState(false);
+  const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+
+  const micLevel = useMicLevel(micStream);
 
   const stopTimer = () => {
     if (timerRef.current) {
@@ -41,6 +46,7 @@ export default function ConsultaCompleta() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      setMicStream(stream);
       chunksRef.current = [];
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -73,6 +79,7 @@ export default function ConsultaCompleta() {
 
     recorder.onstop = async () => {
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      setMicStream(null);
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
 
       try {
@@ -163,6 +170,12 @@ export default function ConsultaCompleta() {
             Tendencia y alertas
           </a>
           <span className="font-medium text-slate-800">Consulta completa</span>
+          <a
+            href="/prueba-microfono"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Prueba de micrófono
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Grabación de consulta completa</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -218,6 +231,7 @@ export default function ConsultaCompleta() {
               <span className="text-2xl">■</span>
             </button>
             <p className="font-mono text-lg text-slate-700">{formatTime(seconds)}</p>
+            <MicLevelMeter level={micLevel} active={status === "recording"} />
             <p className="text-sm text-slate-500">Grabando la consulta… tocá para detener</p>
           </div>
         ) : null}
