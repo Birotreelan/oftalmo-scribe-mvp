@@ -1,8 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { parseDniPdf417, type DniBarcodeFields } from "@/lib/dni-barcode";
 
 type Status = "idle" | "processing" | "review" | "error";
+type CaptureTarget = "front" | "back";
+type ScanStatus = "idle" | "starting" | "scanning" | "error";
 
 type DniExtraction = {
   tipoDocumento: string;
@@ -36,6 +39,20 @@ const CAMPOS: Array<{ key: keyof DniExtraction; label: string }> = [
   { key: "domicilio", label: "Domicilio" },
 ];
 
+// Campos que, si vinieron del código de barras, son más confiables que la
+// visión por IA — no se pisan cuando después se corre la extracción por IA
+// (por ejemplo, con la foto del dorso).
+const CAMPOS_PRIORIDAD_BARCODE: Array<keyof DniExtraction> = [
+  "numeroTramite",
+  "apellido",
+  "nombre",
+  "sexo",
+  "dni",
+  "ejemplar",
+  "fechaNacimiento",
+  "fechaEmision",
+];
+
 function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -43,6 +60,28 @@ function fileToDataUrl(file: File): Promise<string> {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+function barcodeFieldsToExtraction(parsed: DniBarcodeFields, prev: DniExtraction | null): DniExtraction {
+  return {
+    tipoDocumento: "DNI tarjeta",
+    numeroTramite: parsed.numeroTramite,
+    apellido: parsed.apellido,
+    nombre: parsed.nombre,
+    sexo: parsed.sexo,
+    dni: parsed.dni,
+    ejemplar: parsed.ejemplar,
+    fechaNacimiento: parsed.fechaNacimiento,
+    fechaEmision: parsed.fechaEmision,
+    nacionalidad: prev?.nacionalidad ?? null,
+    cuil: prev?.cuil ?? parsed.cuilParcial,
+    domicilio: prev?.domicilio ?? null,
+    confianza: "alta",
+    camposDudosos: parsed.posibleNombreDeformado ? ["apellido", "nombre"] : [],
+    observaciones: parsed.posibleNombreDeformado
+      ? "Datos leídos del código de barras del DNI. El código no admite bien ñ/tildes: confirmá apellido y nombre contra la foto."
+      : "Datos leídos del código de barras del DNI (fuente confiable, no es una lectura por IA).",
+  };
 }
 
 export default function EscaneoDni() {
@@ -54,12 +93,140 @@ export default function EscaneoDni() {
   const [resultado, setResultado] = useState<DniExtraction | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // Captura por cámara + auto-detección del código de barras del frente.
+  const [barcodeSupported, setBarcodeSupported] = useState(false);
+  const [cameraTarget, setCameraTarget] = useState<CaptureTarget | null>(null);
+  const [scanStatus, setScanStatus] = useState<ScanStatus>("idle");
+  const [barcodeDetectedFront, setBarcodeDetectedFront] = useState(false);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const detectIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (typeof window === "undefined" || !("BarcodeDetector" in window)) return;
+      try {
+        const formats: string[] = await (window as any).BarcodeDetector.getSupportedFormats();
+        if (!cancelled) setBarcodeSupported(formats.includes("pdf417"));
+      } catch {
+        if (!cancelled) setBarcodeSupported(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    // Cortar la cámara si el usuario navega fuera de la página con la cámara
+    // abierta.
+    return () => stopCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const stopCamera = () => {
+    if (detectIntervalRef.current) {
+      clearInterval(detectIntervalRef.current);
+      detectIntervalRef.current = null;
+    }
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    setCameraTarget(null);
+    setScanStatus("idle");
+  };
+
+  const captureFrame = (): string | null => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.videoWidth === 0) return null;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL("image/jpeg", 0.92);
+  };
+
+  const handleBarcodeDetected = (parsed: DniBarcodeFields) => {
+    const dataUrl = captureFrame();
+    if (dataUrl) {
+      setFrontData(dataUrl);
+      setFrontPreview(dataUrl);
+    }
+    setBarcodeDetectedFront(true);
+    setResultado((prev) => barcodeFieldsToExtraction(parsed, prev));
+    setStatus("review");
+    stopCamera();
+  };
+
+  const startBarcodeLoop = () => {
+    const Detector = (window as any).BarcodeDetector;
+    const detector = new Detector({ formats: ["pdf417"] });
+    detectIntervalRef.current = setInterval(async () => {
+      const video = videoRef.current;
+      if (!video || video.readyState < 2) return;
+      try {
+        const barcodes = await detector.detect(video);
+        const pdf417 = barcodes.find((b: any) => b.rawValue);
+        if (pdf417) {
+          const parsed = parseDniPdf417(pdf417.rawValue);
+          if (parsed) handleBarcodeDetected(parsed);
+        }
+      } catch {
+        // Frame ilegible puntual: se ignora y se reintenta en el próximo tick.
+      }
+    }, 400);
+  };
+
+  const openCamera = async (target: CaptureTarget) => {
+    setErrorMsg("");
+    setCameraTarget(target);
+    setScanStatus("starting");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setScanStatus("scanning");
+      if (target === "front" && barcodeSupported) {
+        startBarcodeLoop();
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMsg("No se pudo acceder a la cámara. Revisá los permisos del navegador.");
+      setScanStatus("error");
+      setCameraTarget(null);
+    }
+  };
+
+  const handleManualCapture = () => {
+    const dataUrl = captureFrame();
+    if (!dataUrl) return;
+    if (cameraTarget === "front") {
+      setFrontData(dataUrl);
+      setFrontPreview(dataUrl);
+      setBarcodeDetectedFront(false);
+    } else if (cameraTarget === "back") {
+      setBackData(dataUrl);
+      setBackPreview(dataUrl);
+    }
+    stopCamera();
+  };
+
   const handleFrontChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const dataUrl = await fileToDataUrl(file);
     setFrontData(dataUrl);
     setFrontPreview(dataUrl);
+    setBarcodeDetectedFront(false);
   };
 
   const handleBackChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,7 +249,23 @@ export default function EscaneoDni() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al escanear el documento.");
-      setResultado(data.resultado);
+
+      setResultado((prev) => {
+        const nuevo: DniExtraction = data.resultado;
+        if (!prev || !barcodeDetectedFront) return nuevo;
+        // Si el frente ya vino del código de barras, esos campos son más
+        // confiables que la visión por IA: se conservan, y la IA solo aporta
+        // lo que el barcode no trae (domicilio, CUIL completo, nacionalidad).
+        const merged = { ...nuevo };
+        for (const campo of CAMPOS_PRIORIDAD_BARCODE) {
+          (merged as any)[campo] = prev[campo];
+        }
+        merged.cuil = prev.cuil ?? nuevo.cuil;
+        merged.confianza = "alta";
+        merged.camposDudosos = prev.camposDudosos;
+        merged.observaciones = prev.observaciones;
+        return merged;
+      });
       setStatus("review");
     } catch (err: any) {
       console.error(err);
@@ -99,6 +282,8 @@ export default function EscaneoDni() {
     setBackData(null);
     setResultado(null);
     setErrorMsg("");
+    setBarcodeDetectedFront(false);
+    stopCamera();
   };
 
   const updateField = (key: keyof DniExtraction, value: string) => {
@@ -112,6 +297,84 @@ export default function EscaneoDni() {
       : resultado?.confianza === "media"
       ? "bg-amber-100 text-amber-700"
       : "bg-red-100 text-red-700";
+
+  const renderCaptureSlot = (
+    target: CaptureTarget,
+    label: string,
+    preview: string | null,
+    onFileChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  ) => {
+    const isCameraOpenHere = cameraTarget === target;
+
+    return (
+      <div>
+        <label className="mb-1 block text-sm font-medium text-slate-700">{label}</label>
+
+        {isCameraOpenHere ? (
+          <div className="flex flex-col gap-2">
+            <div className="relative overflow-hidden rounded-lg border border-slate-300 bg-slate-900">
+              {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+              <video ref={videoRef} className="w-full" playsInline muted />
+              <div className="pointer-events-none absolute inset-6 rounded-md border-2 border-dashed border-white/70" />
+            </div>
+            <p className="text-xs text-slate-500">
+              {target === "front" && barcodeSupported
+                ? scanStatus === "scanning"
+                  ? "Encuadrá el frente del DNI dentro del marco — se captura solo al detectar el código de barras."
+                  : "Iniciando cámara…"
+                : "Encuadrá el documento dentro del marco y tocá Capturar."}
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={handleManualCapture}
+                className="rounded-lg bg-slate-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-900"
+              >
+                Capturar ahora
+              </button>
+              <button
+                type="button"
+                onClick={stopCamera}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => openCamera(target)}
+                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
+              >
+                📷 Usar cámara
+              </button>
+              <label className="cursor-pointer rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50">
+                Subir archivo
+                <input
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  onChange={onFileChange}
+                  className="hidden"
+                />
+              </label>
+            </div>
+            {preview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={preview}
+                alt={`Vista previa ${label.toLowerCase()}`}
+                className="max-h-56 rounded-lg border border-slate-200 object-contain"
+              />
+            ) : null}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-10">
@@ -148,64 +411,40 @@ export default function EscaneoDni() {
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Escaneo de DNI (admisión)</h1>
         <p className="mt-1 text-sm text-slate-500">
-          MVP · Subí una foto del frente del DNI (y del dorso si querés más datos) para precargar
-          los datos de admisión del paciente. Revisá y corregí antes de guardar.
+          MVP · Usá la cámara o subí una foto del frente del DNI (y del dorso si querés más datos)
+          para precargar los datos de admisión del paciente. Revisá y corregí antes de guardar.
         </p>
+        {!barcodeSupported ? (
+          <p className="mt-1 text-xs text-amber-600">
+            Este navegador no soporta la detección automática del código de barras del DNI — la
+            cámara del frente va a requerir capturar manualmente. Funciona automático en
+            Chrome/Edge en Android y en la mayoría de las notebooks con Chrome/Edge; en Safari
+            (iPhone/iPad) todavía no está disponible.
+          </p>
+        ) : null}
       </header>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <canvas ref={canvasRef} className="hidden" />
+
         {status === "idle" || status === "error" ? (
           <div className="flex flex-col gap-4">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Frente del DNI (obligatorio)
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleFrontChange}
-                className="block w-full text-sm text-slate-600"
-              />
-              {frontPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={frontPreview}
-                  alt="Vista previa frente del DNI"
-                  className="mt-2 max-h-56 rounded-lg border border-slate-200 object-contain"
-                />
-              ) : null}
-            </div>
-
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Dorso del DNI (opcional — suma domicilio y CUIL)
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                capture="environment"
-                onChange={handleBackChange}
-                className="block w-full text-sm text-slate-600"
-              />
-              {backPreview ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={backPreview}
-                  alt="Vista previa dorso del DNI"
-                  className="mt-2 max-h-56 rounded-lg border border-slate-200 object-contain"
-                />
-              ) : null}
-            </div>
+            {renderCaptureSlot("front", "Frente del DNI (obligatorio)", frontPreview, handleFrontChange)}
+            {renderCaptureSlot(
+              "back",
+              "Dorso del DNI (opcional — suma domicilio y CUIL)",
+              backPreview,
+              handleBackChange
+            )}
 
             {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
 
             <button
               onClick={handleScan}
-              disabled={!frontData}
+              disabled={!frontData || cameraTarget !== null}
               className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-white transition hover:bg-slate-900 disabled:opacity-50"
             >
-              Escanear DNI
+              Escanear DNI con IA
             </button>
           </div>
         ) : null}
@@ -220,7 +459,10 @@ export default function EscaneoDni() {
         {status === "review" && resultado ? (
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-slate-500">{resultado.tipoDocumento}</span>
+              <span className="text-sm text-slate-500">
+                {resultado.tipoDocumento}
+                {barcodeDetectedFront ? " · vía código de barras" : ""}
+              </span>
               <span className={`rounded-full px-3 py-1 text-xs font-medium ${confianzaColor}`}>
                 Confianza: {resultado.confianza}
               </span>
@@ -258,17 +500,32 @@ export default function EscaneoDni() {
               </div>
             )}
 
+            {!backData && barcodeDetectedFront ? (
+              <p className="text-xs text-slate-500">
+                Faltan domicilio y CUIL completo — capturá también el dorso y tocá "Escanear DNI
+                con IA" para completarlos.
+              </p>
+            ) : null}
+
             {resultado.observaciones ? (
               <p className="text-xs text-slate-500">Observaciones: {resultado.observaciones}</p>
             ) : null}
 
             <p className="text-xs text-slate-400">
-              Revisá especialmente los campos marcados antes de usar estos datos para la admisión
-              — este MVP lee la imagen con IA, todavía no decodifica el código de barras del DNI
-              (más confiable para el número de documento y el CUIL).
+              Revisá especialmente los campos marcados antes de usar estos datos para la admisión.
             </p>
 
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-3">
+              {!barcodeDetectedFront || !backData ? (
+                <button
+                  onClick={() => {
+                    setStatus("idle");
+                  }}
+                  className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
+                >
+                  Agregar/cambiar foto
+                </button>
+              ) : null}
               <button
                 onClick={handleReset}
                 className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50"
@@ -282,8 +539,7 @@ export default function EscaneoDni() {
 
       <p className="text-center text-xs text-slate-400">
         Prototipo MVP — todavía no guarda en el sistema de admisión real; el siguiente paso es
-        conectar estos datos al formulario/API de alta de paciente y sumar la lectura del código de
-        barras PDF417 y la MRZ como fuentes más confiables.
+        conectar estos datos al formulario/API de alta de paciente.
       </p>
     </main>
   );
