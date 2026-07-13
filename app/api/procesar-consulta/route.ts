@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { generarResumenConsulta } from "@/lib/hc-analysis";
+import { generarNotaConsultaCompleta } from "@/lib/hc-analysis";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     // Nota: gpt-4o-transcribe-diarize no acepta el parámetro "prompt" (a
     // diferencia de gpt-4o-transcribe, usado en /api/transcribe). La
     // corrección de terminología para esta herramienta se aplica igual,
-    // pero solo en el paso siguiente (generarResumenConsulta con gpt-4o),
+    // pero solo en el paso siguiente (generarNotaConsultaCompleta con gpt-4o),
     // no como sesgo de la transcripción en sí.
     const formData = new FormData();
     formData.append("file", new Blob([audioBuffer], { type: "audio/webm" }), "consulta.webm");
@@ -119,12 +119,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const summary = await generarResumenConsulta(openai, diarizedText);
+    const { nota, datosEstructurados } = await generarNotaConsultaCompleta(openai, diarizedText);
 
     return NextResponse.json({
       diarizedText,
       segmentCount,
-      summary,
+      summary: nota,
+      datosEstructurados,
     });
   } catch (err: unknown) {
     console.error("Error en /api/procesar-consulta:", err);

@@ -116,9 +116,15 @@ En `/consulta-completa` se graba la consulta entera (no solo el dictado del méd
    `gpt-4o-transcribe-diarize` (modelo de OpenAI con diarización nativa incorporada, mismo costo
    que el modelo de transcripción normal: no hace falta un proveedor de diarización aparte).
 4. La transcripción diarizada (hablantes separados, todavía sin saber cuál es médico y cuál
-   paciente) se le pasa a `gpt-4o`, que deduce por el contenido de la conversación quién es quién
-   y arma la nota clínica (motivo de consulta, síntomas referidos por el paciente, hallazgos del
-   examen, diagnóstico, plan).
+   paciente) se le pasa a `gpt-4o` con **structured outputs** (`generarNotaConsultaCompleta`), que
+   deduce por el contenido de la conversación quién es quién y genera, en una sola llamada, la
+   nota clínica de siempre (motivo de consulta, síntomas referidos por el paciente, hallazgos del
+   examen, diagnóstico, plan) y el mismo JSON `datosEstructurados` que usa "Dictado de nota" (con
+   un campo extra, `anamnesisPaciente`, para lo que el paciente relató con sus propias palabras).
+   Es a propósito el mismo schema en ambas herramientas: el sistema médico solo necesita mapear un
+   formato de JSON, sin importar si el origen fue un dictado corto o la consulta completa. Igual
+   que en "Dictado de nota", la UI muestra un link "Ver JSON para el sistema" con botón para
+   copiarlo.
 
 **Nota sobre esta herramienta:** `gpt-4o-transcribe-diarize` es un modelo muy nuevo y la forma
 exacta de su respuesta (`diarized_json`) puede no estar 100% documentada todavía. El parser en

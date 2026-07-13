@@ -158,16 +158,21 @@ ${GLOSARIO_OFTALMOLOGICO}
 `.trim();
 
 // ---------------------------------------------------------------------------
-// Herramienta: dictado de nota — texto libre + JSON estructurado
+// Texto libre + JSON estructurado — schema compartido entre "Dictado de
+// nota" y "Consulta completa" (las dos herramientas que arman una nota
+// clínica a partir de audio).
 //
-// Además de la nota prolija en texto (para pegar en la HC como antes), esta
+// Además de la nota prolija en texto (para pegar en la HC como antes), cada
 // herramienta devuelve un JSON con los mismos datos separados en los campos
 // que ya usa el sistema médico real (según el formato de exportación de HC
 // que vimos: A.V., Subjetiva, PIO, Medicación, Biomicroscopía, Oftalmoscopía,
 // Diagnóstico, Motivo de Consulta, Derivo a) — pensado para poder insertarse
 // directamente en el sistema en vez de tener que volver a tipear la nota.
-// Se genera todo en una sola llamada con structured outputs (nota + JSON a
-// la vez) para que ambos salgan siempre consistentes entre sí.
+// Se usa el mismo schema en ambas herramientas a propósito, para que el
+// sistema médico tenga un único formato de JSON que mapear, sin importar si
+// el origen fue un dictado corto o la consulta completa. Se genera todo en
+// una sola llamada con structured outputs (nota + JSON a la vez) para que
+// ambos salgan siempre consistentes entre sí.
 // ---------------------------------------------------------------------------
 
 export const NOTA_DICTADO_SYSTEM_PROMPT = `Sos un asistente de documentación clínica
@@ -187,7 +192,9 @@ Tu tarea es generar DOS cosas a partir de esa transcripción cruda, siempre cons
    insertarse directamente en el sistema de gestión de la clínica (mismo tipo de campos que ya usa
    ese sistema: agudeza visual con y sin corrección por ojo, subjetiva/refracción, PIO con
    tonómetro, biomicroscopía, oftalmoscopía/fondo de ojo, diagnóstico, medicación indicada,
-   plan/indicaciones, derivaciones y próximo control).
+   plan/indicaciones, derivaciones y próximo control). El campo "anamnesisPaciente" es para cuando
+   el médico reporta textualmente algo que el paciente dijo (poco común en un dictado a solas);
+   dejalo en null si no aplica.
 
 Reglas estrictas, válidas para ambas salidas:
 1. No inventes ni agregues ningún dato clínico que el médico no haya dicho. Si un campo no fue
@@ -213,6 +220,7 @@ export const NOTA_DICTADO_RESPONSE_SCHEMA = {
         properties: {
           motivoConsulta: { type: ["string", "null"] },
           antecedentes: { type: ["string", "null"] },
+          anamnesisPaciente: { type: ["string", "null"] },
           agudezaVisual: {
             type: "object",
             properties: {
@@ -266,6 +274,7 @@ export const NOTA_DICTADO_RESPONSE_SCHEMA = {
         required: [
           "motivoConsulta",
           "antecedentes",
+          "anamnesisPaciente",
           "agudezaVisual",
           "subjetiva",
           "pio",
@@ -288,6 +297,7 @@ export const NOTA_DICTADO_RESPONSE_SCHEMA = {
 export type NotaDictadoEstructurada = {
   motivoConsulta: string | null;
   antecedentes: string | null;
+  anamnesisPaciente: string | null;
   agudezaVisual: {
     odSinCorreccion: string | null;
     oiSinCorreccion: string | null;
@@ -345,8 +355,11 @@ síntomas en lenguaje coloquial o responde preguntas sobre su cuadro), quién es
 el paciente, y si hay un tercer hablante (acompañante/familiar), marcarlo como tal. Si en algún
 tramo no podés determinarlo con confianza, indicá el hablante genérico en vez de adivinar.
 
-Tu segunda tarea es generar una nota clínica de la consulta a partir de ese diálogo, con esta
-estructura (omitiendo cualquier sección sin información suficiente):
+Tu segunda tarea es generar DOS cosas a partir de ese diálogo ya identificado, siempre
+consistentes entre sí:
+
+1. "nota": un texto de nota clínica de la consulta, con esta estructura (omitiendo cualquier
+   sección sin información suficiente):
 
 MOTIVO DE CONSULTA
 (lo que el paciente refiere, en pocas líneas)
@@ -365,18 +378,30 @@ PLAN / INDICACIONES
 (tratamiento, medicación, estudios solicitados, próximo control, tal como se lo explicó al
 paciente)
 
-Reglas estrictas:
-1. No inventes ni asumas ningún dato que no esté explícito en la transcripción.
-2. No traduzcas jerga médica a términos técnicos que el médico no usó, ni inventes valores.
-3. ${CORRECCION_TERMINOLOGIA_INSTRUCCIONES}
-4. Escribí en español, en un estilo de historia clínica profesional.
-5. Devolvé únicamente la nota con la estructura pedida, sin comentarios adicionales, sin markdown
-   y sin explicar tu razonamiento sobre quién es quién.`;
+2. "datosEstructurados": los mismos datos separados en campos individuales, con el mismo formato
+   que usa "Dictado de nota" (agudeza visual con y sin corrección por ojo, subjetiva/refracción,
+   PIO con tonómetro, biomicroscopía, oftalmoscopía/fondo de ojo, diagnóstico, medicación
+   indicada, plan/indicaciones, derivaciones, próximo control), pensados para insertarse
+   directamente en el sistema de gestión de la clínica. A diferencia del dictado a solas, acá sí
+   es habitual que haya algo para "anamnesisPaciente": lo que el paciente relató con sus propias
+   palabras (síntomas, motivo, antecedentes que menciona él mismo), a diferenciar de
+   "motivoConsulta" (síntesis breve del motivo) y de los hallazgos objetivos del examen.
 
-export async function generarResumenConsulta(
+Reglas estrictas, válidas para ambas salidas:
+1. No inventes ni asumas ningún dato que no esté explícito en la transcripción.
+2. No traduzcas jerga médica a términos técnicos que el médico no usó, ni inventes valores. Si un
+   campo del JSON no fue mencionado, usá null (o array vacío para listas).
+3. ${CORRECCION_TERMINOLOGIA_INSTRUCCIONES}
+4. En "pio.od" y "pio.oi" convertí a número si el valor es numérico; si no, dejalo en null y
+   conservá el texto tal cual solo en "nota".
+5. Escribí todo en español, en un estilo de historia clínica profesional.
+6. La "nota" debe contener únicamente el texto con la estructura pedida, sin comentarios
+   adicionales, sin markdown y sin explicar tu razonamiento sobre quién es quién.`;
+
+export async function generarNotaConsultaCompleta(
   openai: OpenAI,
   diarizedTranscript: string
-): Promise<string> {
+): Promise<{ nota: string; datosEstructurados: NotaDictadoEstructurada }> {
   const completion = await openai.chat.completions.create({
     model: "gpt-4o",
     temperature: 0.2,
@@ -387,9 +412,14 @@ export async function generarResumenConsulta(
         content: `Transcripción diarizada de la consulta:\n\n"""${diarizedTranscript}"""`,
       },
     ],
+    response_format: {
+      type: "json_schema",
+      json_schema: NOTA_DICTADO_RESPONSE_SCHEMA,
+    },
   });
 
-  return completion.choices[0]?.message?.content?.trim() ?? "";
+  const raw = completion.choices[0]?.message?.content ?? "{}";
+  return JSON.parse(raw) as { nota: string; datosEstructurados: NotaDictadoEstructurada };
 }
 
 // ---------------------------------------------------------------------------
