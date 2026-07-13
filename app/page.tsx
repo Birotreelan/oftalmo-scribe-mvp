@@ -19,6 +19,11 @@ export default function Home() {
   const [noteText, setNoteText] = useState("");
   const [transcript, setTranscript] = useState("");
   const [showTranscript, setShowTranscript] = useState(false);
+  const [datosEstructurados, setDatosEstructurados] = useState<Record<string, unknown> | null>(
+    null
+  );
+  const [showJson, setShowJson] = useState(false);
+  const [jsonCopiado, setJsonCopiado] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [micStream, setMicStream] = useState<MediaStream | null>(null);
 
@@ -92,6 +97,7 @@ export default function Home() {
 
         setTranscript(data.transcript || "");
         setNoteText(data.note || "");
+        setDatosEstructurados(data.datosEstructurados || null);
         setStatus("review");
       } catch (err: any) {
         console.error(err);
@@ -110,7 +116,7 @@ export default function Home() {
       const res = await fetch("/api/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ note: noteText, transcript }),
+        body: JSON.stringify({ note: noteText, transcript, datosEstructurados }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data?.error || "Error al guardar la nota.");
@@ -127,7 +133,21 @@ export default function Home() {
     setNoteText("");
     setTranscript("");
     setShowTranscript(false);
+    setDatosEstructurados(null);
+    setShowJson(false);
+    setJsonCopiado(false);
     setErrorMsg("");
+  };
+
+  const handleCopyJson = async () => {
+    if (!datosEstructurados) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(datosEstructurados, null, 2));
+      setJsonCopiado(true);
+      setTimeout(() => setJsonCopiado(false), 2000);
+    } catch (err) {
+      console.error("No se pudo copiar el JSON:", err);
+    }
   };
 
   const formatTime = (s: number) => {
@@ -245,6 +265,32 @@ export default function Home() {
                   <p className="mt-2 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-xs text-slate-500">
                     {transcript}
                   </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {datosEstructurados ? (
+              <div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowJson((v) => !v)}
+                    className="text-xs text-slate-500 underline underline-offset-2"
+                  >
+                    {showJson ? "Ocultar JSON" : "Ver JSON para el sistema"}
+                  </button>
+                  {showJson ? (
+                    <button
+                      onClick={handleCopyJson}
+                      className="text-xs text-slate-500 underline underline-offset-2"
+                    >
+                      {jsonCopiado ? "¡Copiado!" : "Copiar JSON"}
+                    </button>
+                  ) : null}
+                </div>
+                {showJson ? (
+                  <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+                    {JSON.stringify(datosEstructurados, null, 2)}
+                  </pre>
                 ) : null}
               </div>
             ) : null}

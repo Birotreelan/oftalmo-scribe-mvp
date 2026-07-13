@@ -8,12 +8,20 @@ copiar a la Historia Clínica.
 
 1. El médico toca "grabar" y dicta libremente durante segundos o minutos.
 2. Al detener la grabación, el audio se envía a `/api/transcribe`.
-3. Esa ruta transcribe el audio con `gpt-4o-transcribe` y luego usa `gpt-4o` para reordenar el
-   texto en una nota clínica prolija (con secciones típicas de oftalmología cuando aplica:
-   agudeza visual, PIO, biomicroscopía, fondo de ojo, etc.).
-4. El resultado se muestra en un textarea editable.
-5. Al tocar "Guardar en HC" se envía a `/api/save`, que por ahora es un **stub** (solo loguea y
-   confirma) — se reemplaza en el siguiente paso por la integración real con el sistema médico.
+3. Esa ruta transcribe el audio con `gpt-4o-transcribe` y luego usa `gpt-4o` con **structured
+   outputs** (`lib/hc-analysis.ts` → `generarNotaDictado`) para generar, en una sola llamada, dos
+   cosas siempre consistentes entre sí: el texto de nota clínica prolija de siempre (con secciones
+   típicas de oftalmología cuando aplica: agudeza visual, PIO, biomicroscopía, fondo de ojo, etc.)
+   y un JSON (`datosEstructurados`) con esos mismos datos separados en los campos que ya usa el
+   sistema de gestión de la clínica (agudeza visual con/sin corrección por ojo, subjetiva, PIO con
+   tonómetro, biomicroscopía, oftalmoscopía, diagnóstico, medicación indicada, plan, derivaciones,
+   próximo control).
+4. El resultado se muestra en un textarea editable, con un link "Ver JSON para el sistema" que
+   despliega ese JSON (con botón para copiarlo) — pensado como preview de lo que se podría mandar
+   directo al sistema médico en vez de reescribir la nota a mano.
+5. Al tocar "Guardar en HC" se envía a `/api/save` (nota + JSON), que por ahora es un **stub**
+   (solo loguea y confirma) — se reemplaza en el siguiente paso por la integración real con el
+   sistema médico, que previsiblemente va a consumir `datosEstructurados` en vez del texto libre.
 
 ## Corrección de terminología médica (glosario oftalmológico)
 

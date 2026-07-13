@@ -11,13 +11,18 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const note = typeof body?.note === "string" ? body.note : "";
+    const datosEstructurados = body?.datosEstructurados ?? null;
 
     if (!note.trim()) {
       return NextResponse.json({ error: "La nota está vacía." }, { status: 400 });
     }
 
+    // El JSON estructurado (datosEstructurados) es lo que en la integración
+    // real se mandaría al endpoint de alta de consulta del sistema médico,
+    // en vez de (o además de) el texto libre de la nota.
     console.log("[save] Nota recibida para guardar (simulado):", {
       length: note.length,
+      datosEstructurados,
       timestamp: new Date().toISOString(),
     });
 

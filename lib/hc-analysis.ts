@@ -158,6 +158,178 @@ ${GLOSARIO_OFTALMOLOGICO}
 `.trim();
 
 // ---------------------------------------------------------------------------
+// Herramienta: dictado de nota — texto libre + JSON estructurado
+//
+// Además de la nota prolija en texto (para pegar en la HC como antes), esta
+// herramienta devuelve un JSON con los mismos datos separados en los campos
+// que ya usa el sistema médico real (según el formato de exportación de HC
+// que vimos: A.V., Subjetiva, PIO, Medicación, Biomicroscopía, Oftalmoscopía,
+// Diagnóstico, Motivo de Consulta, Derivo a) — pensado para poder insertarse
+// directamente en el sistema en vez de tener que volver a tipear la nota.
+// Se genera todo en una sola llamada con structured outputs (nota + JSON a
+// la vez) para que ambos salgan siempre consistentes entre sí.
+// ---------------------------------------------------------------------------
+
+export const NOTA_DICTADO_SYSTEM_PROMPT = `Sos un asistente de documentación clínica
+especializado en oftalmología. El médico acaba de dictar en voz alta, de forma libre y
+posiblemente desordenada, notas sobre una consulta que ya terminó (no es una conversación con el
+paciente: es el médico resumiendo en voz alta lo más relevante para dejarlo registrado).
+
+Tu tarea es generar DOS cosas a partir de esa transcripción cruda, siempre consistentes entre sí:
+
+1. "nota": un texto de nota clínica prolijo, listo para pegar en la Historia Clínica del
+   paciente, organizado en secciones solo si hay contenido para esas secciones (encabezados tipo
+   "Motivo de consulta", "Antecedentes", "Examen oftalmológico", "Agudeza visual", "Presión
+   intraocular", "Biomicroscopía", "Fondo de ojo", "Diagnóstico", "Plan / Indicaciones"), sin
+   forzar secciones vacías.
+
+2. "datosEstructurados": los mismos datos separados en campos individuales, pensados para
+   insertarse directamente en el sistema de gestión de la clínica (mismo tipo de campos que ya usa
+   ese sistema: agudeza visual con y sin corrección por ojo, subjetiva/refracción, PIO con
+   tonómetro, biomicroscopía, oftalmoscopía/fondo de ojo, diagnóstico, medicación indicada,
+   plan/indicaciones, derivaciones y próximo control).
+
+Reglas estrictas, válidas para ambas salidas:
+1. No inventes ni agregues ningún dato clínico que el médico no haya dicho. Si un campo no fue
+   mencionado, usá null (o array vacío para listas) — no lo completes ni lo dejes fuera del JSON.
+2. Corregí muletillas, repeticiones y errores propios del dictado, pero conservá el contenido
+   clínico exacto tal como fue relatado.
+3. ${CORRECCION_TERMINOLOGIA_INSTRUCCIONES}
+4. Mantené la terminología y abreviaturas oftalmológicas que use el médico (AV, PIO, OD, OI, AO,
+   SLE, FO, etc.) tal como las dictó, tanto en "nota" como en "datosEstructurados".
+5. En "pio.od" y "pio.oi" convertí a número si el valor es numérico; si no es interpretable como
+   número, dejalo en null y conservá el texto tal cual solo en "nota".
+6. Escribí todo en español, en un estilo de historia clínica profesional.`;
+
+export const NOTA_DICTADO_RESPONSE_SCHEMA = {
+  name: "nota_dictado_oftalmologia",
+  strict: true,
+  schema: {
+    type: "object",
+    properties: {
+      nota: { type: "string" },
+      datosEstructurados: {
+        type: "object",
+        properties: {
+          motivoConsulta: { type: ["string", "null"] },
+          antecedentes: { type: ["string", "null"] },
+          agudezaVisual: {
+            type: "object",
+            properties: {
+              odSinCorreccion: { type: ["string", "null"] },
+              oiSinCorreccion: { type: ["string", "null"] },
+              odConCorreccion: { type: ["string", "null"] },
+              oiConCorreccion: { type: ["string", "null"] },
+            },
+            required: ["odSinCorreccion", "oiSinCorreccion", "odConCorreccion", "oiConCorreccion"],
+            additionalProperties: false,
+          },
+          subjetiva: {
+            type: "object",
+            properties: {
+              od: { type: ["string", "null"] },
+              oi: { type: ["string", "null"] },
+            },
+            required: ["od", "oi"],
+            additionalProperties: false,
+          },
+          pio: {
+            type: "object",
+            properties: {
+              od: { type: ["number", "null"] },
+              oi: { type: ["number", "null"] },
+              tonometro: { type: ["string", "null"] },
+            },
+            required: ["od", "oi", "tonometro"],
+            additionalProperties: false,
+          },
+          biomicroscopia: { type: ["string", "null"] },
+          oftalmoscopia: { type: ["string", "null"] },
+          diagnostico: { type: ["string", "null"] },
+          medicacionIndicada: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                nombre: { type: ["string", "null"] },
+                ojo: { type: ["string", "null"] },
+                posologia: { type: ["string", "null"] },
+              },
+              required: ["nombre", "ojo", "posologia"],
+              additionalProperties: false,
+            },
+          },
+          planIndicaciones: { type: ["string", "null"] },
+          derivoA: { type: ["string", "null"] },
+          proximoControl: { type: ["string", "null"] },
+        },
+        required: [
+          "motivoConsulta",
+          "antecedentes",
+          "agudezaVisual",
+          "subjetiva",
+          "pio",
+          "biomicroscopia",
+          "oftalmoscopia",
+          "diagnostico",
+          "medicacionIndicada",
+          "planIndicaciones",
+          "derivoA",
+          "proximoControl",
+        ],
+        additionalProperties: false,
+      },
+    },
+    required: ["nota", "datosEstructurados"],
+    additionalProperties: false,
+  },
+} as const;
+
+export type NotaDictadoEstructurada = {
+  motivoConsulta: string | null;
+  antecedentes: string | null;
+  agudezaVisual: {
+    odSinCorreccion: string | null;
+    oiSinCorreccion: string | null;
+    odConCorreccion: string | null;
+    oiConCorreccion: string | null;
+  };
+  subjetiva: { od: string | null; oi: string | null };
+  pio: { od: number | null; oi: number | null; tonometro: string | null };
+  biomicroscopia: string | null;
+  oftalmoscopia: string | null;
+  diagnostico: string | null;
+  medicacionIndicada: Array<{ nombre: string | null; ojo: string | null; posologia: string | null }>;
+  planIndicaciones: string | null;
+  derivoA: string | null;
+  proximoControl: string | null;
+};
+
+export async function generarNotaDictado(
+  openai: OpenAI,
+  transcript: string
+): Promise<{ nota: string; datosEstructurados: NotaDictadoEstructurada }> {
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o",
+    temperature: 0.2,
+    messages: [
+      { role: "system", content: NOTA_DICTADO_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Transcripción cruda del dictado del médico:\n\n"""${transcript}"""`,
+      },
+    ],
+    response_format: {
+      type: "json_schema",
+      json_schema: NOTA_DICTADO_RESPONSE_SCHEMA,
+    },
+  });
+
+  const raw = completion.choices[0]?.message?.content ?? "{}";
+  return JSON.parse(raw) as { nota: string; datosEstructurados: NotaDictadoEstructurada };
+}
+
+// ---------------------------------------------------------------------------
 // Herramienta: resumen de consulta completa (médico + paciente, diarizada)
 // ---------------------------------------------------------------------------
 
