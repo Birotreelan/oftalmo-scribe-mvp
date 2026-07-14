@@ -187,6 +187,13 @@ explícitas de no "adivinar" dígitos que no lea con claridad — si un campo es
 revisen a mano antes de guardar) — y de autoevaluar su propia confianza (alta/media/baja) según la
 nitidez de la imagen.
 
+**Preview del JSON para el sistema:** igual que en "Dictado de nota" y "Consulta completa", hay un
+link "Ver JSON para el sistema" con botón para copiarlo. La diferencia acá es que el JSON refleja
+en vivo el formulario editable — si se corrige un campo dudoso a mano antes de mirar el JSON, la
+corrección ya sale reflejada, porque ambos leen del mismo estado. Incluye también `confianza`,
+`camposDudosos` y `observaciones`, útiles para decidir del lado del sistema si conviene pedirle a
+un humano que confirme antes de dar de alta al paciente.
+
 **Por qué es una primera etapa y no la versión final:** el DNI argentino (formato tarjeta) trae en
 el frente un código de barras PDF417 con los datos principales codificados como texto plano
 (número de trámite, apellidos, nombres, sexo, DNI, ejemplar, fecha de nacimiento, fecha de
@@ -199,6 +206,29 @@ visión para validar rápido el flujo completo (UI, JSON, futura integración co
 paciente), y en una segunda etapa sumar la decodificación de PDF417/MRZ como fuente primaria,
 dejando la visión como respaldo para cuando el código no sea legible y para los datos que el
 código no trae.
+
+## Herramienta 6: lectura rápida solo por código de barras
+
+En `/escaneo-codigo-dni` no hace falta encuadrar el DNI entero: se acerca directamente el código
+de barras del frente a la cámara (las franjas verticales en la parte inferior) y, apenas se
+decodifica, se completan los datos — sin llamar a ningún modelo de IA. Reutiliza el mismo lector
+(`barcode-detector`, ZXing + WebAssembly) y el mismo parser (`parseDniPdf417`) que ya usa
+"Escaneo de DNI" para el frente, pero como herramienta independiente y más liviana/rápida para
+cuando lo único que se necesita es leer el código (por ejemplo, un control de recepción rápido).
+
+Trae los mismos campos que el código de barras aporta en `/escaneo-dni` (número de trámite,
+apellido, nombre, sexo, DNI, ejemplar, fechas, y los 3 caracteres parciales del CUIL) — no trae
+domicilio ni el CUIL completo, porque esos solo están en el dorso. Si hace falta esa información,
+la página lo aclara y linkea a `/escaneo-dni` para completar con la foto del dorso.
+
+Mismo patrón de preview que las demás herramientas: link "Ver JSON para el sistema" con botón
+para copiar, sobre el formulario editable (con el mismo aviso ⚠ si el apellido/nombre puede venir
+deformado por la limitación de acentos/ñ del PDF417).
+
+**Nota:** aunque coloquialmente mucha gente le dice "el QR del DNI", técnicamente es un código
+PDF417 (un código de barras 2D apilado, no una matriz QR) — el detector igual está configurado
+para reconocer ambos formatos (`pdf417` y `qr_code`) por si alguna variante futura del documento
+usara un QR real.
 
 **Aplica también a otros documentos:** el mismo patrón (imagen → LLM con JSON schema específico
 del tipo de documento) sirve para otros documentos de la admisión (carnet de obra social/prepaga,

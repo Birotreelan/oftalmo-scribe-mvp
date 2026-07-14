@@ -91,6 +91,8 @@ export default function EscaneoDni() {
   const [frontData, setFrontData] = useState<string | null>(null);
   const [backData, setBackData] = useState<string | null>(null);
   const [resultado, setResultado] = useState<DniExtraction | null>(null);
+  const [showJson, setShowJson] = useState(false);
+  const [jsonCopiado, setJsonCopiado] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
   // Captura por cámara + auto-detección del código de barras del frente.
@@ -296,12 +298,25 @@ export default function EscaneoDni() {
     setResultado(null);
     setErrorMsg("");
     setBarcodeDetectedFront(false);
+    setShowJson(false);
+    setJsonCopiado(false);
     stopCamera();
   };
 
   const updateField = (key: keyof DniExtraction, value: string) => {
     if (!resultado) return;
     setResultado({ ...resultado, [key]: value } as DniExtraction);
+  };
+
+  const handleCopyJson = async () => {
+    if (!resultado) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(resultado, null, 2));
+      setJsonCopiado(true);
+      setTimeout(() => setJsonCopiado(false), 2000);
+    } catch (err) {
+      console.error("No se pudo copiar el JSON:", err);
+    }
   };
 
   const confianzaColor =
@@ -423,6 +438,12 @@ export default function EscaneoDni() {
             Prueba de micrófono
           </a>
           <span className="font-medium text-slate-800">Escaneo de DNI</span>
+          <a
+            href="/escaneo-codigo-dni"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Código de barras DNI
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Escaneo de DNI (admisión)</h1>
         <p className="mt-1 text-sm text-slate-500">
@@ -520,6 +541,32 @@ export default function EscaneoDni() {
 
             {resultado.observaciones ? (
               <p className="text-xs text-slate-500">Observaciones: {resultado.observaciones}</p>
+            ) : null}
+
+            {resultado.tipoDocumento !== "no reconocido" ? (
+              <div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setShowJson((v) => !v)}
+                    className="text-xs text-slate-500 underline underline-offset-2"
+                  >
+                    {showJson ? "Ocultar JSON" : "Ver JSON para el sistema"}
+                  </button>
+                  {showJson ? (
+                    <button
+                      onClick={handleCopyJson}
+                      className="text-xs text-slate-500 underline underline-offset-2"
+                    >
+                      {jsonCopiado ? "¡Copiado!" : "Copiar JSON"}
+                    </button>
+                  ) : null}
+                </div>
+                {showJson ? (
+                  <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap rounded-lg bg-slate-900 p-3 text-xs text-slate-100">
+                    {JSON.stringify(resultado, null, 2)}
+                  </pre>
+                ) : null}
+              </div>
             ) : null}
 
             <p className="text-xs text-slate-400">

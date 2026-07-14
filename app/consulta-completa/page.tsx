@@ -208,6 +208,12 @@ export default function ConsultaCompleta() {
           >
             Escaneo de DNI
           </a>
+          <a
+            href="/escaneo-codigo-dni"
+            className="text-slate-500 underline underline-offset-2 hover:text-slate-800"
+          >
+            Código de barras DNI
+          </a>
         </nav>
         <h1 className="text-2xl font-semibold text-slate-800">Grabación de consulta completa</h1>
         <p className="mt-1 text-sm text-slate-500">
