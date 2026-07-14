@@ -117,16 +117,19 @@ export default function EscaneoDni() {
     let cancelled = false;
     (async () => {
       try {
+        // Ojo: esta clase NO implementa EventTarget/addEventListener (a
+        // pesar de lo que sugiere parte de la documentación de npm) — llamar
+        // a detector.addEventListener() tira una excepción y hace que el
+        // detector nunca se guarde en el ref, dejando el escaneo muerto sin
+        // ningún error visible. El propio constructor ya dispara la carga
+        // del módulo WASM en segundo plano (fireImmediately); el primer
+        // detect() puede tardar un poco más mientras termina de cargar, pero
+        // no hace falta esperar ningún evento para poder usarlo.
         const { BarcodeDetector } = await import("barcode-detector/pure");
         if (cancelled) return;
         const detector = new BarcodeDetector({ formats: ["pdf417"] });
-        detector.addEventListener("load", () => {
-          if (!cancelled) setLectorListo(true);
-        });
-        detector.addEventListener("error", (e: any) => {
-          console.error("No se pudo cargar el lector de código de barras:", e.detail);
-        });
         barcodeDetectorRef.current = detector;
+        setLectorListo(true);
       } catch (err) {
         console.error("No se pudo inicializar el lector de código de barras:", err);
       }

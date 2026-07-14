@@ -37,19 +37,19 @@ export default function EscaneoCodigoDni() {
     let cancelled = false;
     (async () => {
       try {
+        // Ojo: esta clase NO implementa EventTarget/addEventListener —
+        // llamarlo tira una excepción que impedía guardar el detector (bug
+        // real encontrado en la primera versión: el escaneo quedaba muerto
+        // sin ningún error visible). El constructor ya dispara la carga del
+        // módulo WASM solo; no hace falta esperar ningún evento para usarlo.
         const { BarcodeDetector } = await import("barcode-detector/pure");
         if (cancelled) return;
         // Se incluye "qr_code" por si alguna variante del documento (o del
         // futuro DNI con chip) llegara a usar un QR real en vez de PDF417 —
         // hoy el DNI tarjeta usa PDF417.
         const detector = new BarcodeDetector({ formats: ["pdf417", "qr_code"] });
-        detector.addEventListener("load", () => {
-          if (!cancelled) setLectorListo(true);
-        });
-        detector.addEventListener("error", (e: any) => {
-          console.error("No se pudo cargar el lector de código de barras:", e.detail);
-        });
         barcodeDetectorRef.current = detector;
+        setLectorListo(true);
       } catch (err) {
         console.error("No se pudo inicializar el lector de código de barras:", err);
       }

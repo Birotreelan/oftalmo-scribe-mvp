@@ -179,6 +179,17 @@ para no bloquear al usuario. Si el código no llega a leerse (mala luz, código 
 baja resolución), ese mismo botón sirve como respaldo, y también queda la opción de subir un
 archivo en vez de usar la cámara.
 
+**Bug real encontrado y corregido:** la primera versión asumía (por parte de la documentación de
+npm) que la clase `BarcodeDetector` de este paquete extendía `EventTarget` y exponía eventos
+`load`/`error` vía `addEventListener`. El código fuente real (`src/core.ts` en el repo del
+paquete) no implementa `EventTarget` en absoluto — llamar a `detector.addEventListener(...)`
+tiraba una excepción silenciosa que impedía que el detector llegara a guardarse, y como
+consecuencia el loop de escaneo nunca tenía un detector válido: no hacía literalmente nada, sin
+ningún error visible en pantalla (por eso "no detectaba nunca"). El constructor de
+`BarcodeDetector` ya dispara la carga del módulo WASM por su cuenta (`fireImmediately`); no hace
+falta esperar ningún evento para poder usarlo, así que se sacó el `addEventListener` y el detector
+se guarda apenas se construye.
+
 **Cómo funciona esta primera etapa:** la imagen (o las dos) se manda directo a `gpt-4o` con
 `response_format: json_schema` (`lib/dni-extraction.ts` → `DNI_RESPONSE_SCHEMA`), en modo
 `strict`, para que la respuesta venga siempre con la misma forma. El modelo tiene instrucciones
